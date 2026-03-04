@@ -21,6 +21,8 @@ router.post('/sync', async (req, res) => {
   try {
     const { rides } = req.body; // Array of rides to sync
     
+    console.log('Sync request received, rides count:', rides?.length);
+    
     if (!Array.isArray(rides)) {
       return res.status(400).json({ error: 'rides must be an array' });
     }
@@ -28,6 +30,7 @@ router.post('/sync', async (req, res) => {
     const results = [];
     
     for (const ride of rides) {
+      console.log(`Processing ride ${ride.localId}: maxLeanAngle=${ride.maxLeanAngle}, avgLeanAngle=${ride.avgLeanAngle}, maxGForce=${ride.maxGForce}, eventsJson=${ride.eventsJson}`);
       try {
         // Upsert: update if exists, insert if not
         const result = await Ride.findOneAndUpdate(
