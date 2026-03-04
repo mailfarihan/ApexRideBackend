@@ -44,7 +44,12 @@ router.post('/sync', async (req, res) => {
             duration: ride.duration,
             avgSpeed: ride.avgSpeed,
             maxSpeed: ride.maxSpeed,
+            elevationGain: ride.elevationGain,
+            maxLeanAngle: ride.maxLeanAngle,
+            avgLeanAngle: ride.avgLeanAngle,
+            maxGForce: ride.maxGForce,
             routePointsJson: ride.routePointsJson,
+            eventsJson: ride.eventsJson,
             scenicScore: ride.scenicScore,
             twistyScore: ride.twistyScore,
             title: ride.title,
@@ -102,7 +107,12 @@ router.post('/', async (req, res) => {
         duration: ride.duration,
         avgSpeed: ride.avgSpeed,
         maxSpeed: ride.maxSpeed,
+        elevationGain: ride.elevationGain,
+        maxLeanAngle: ride.maxLeanAngle,
+        avgLeanAngle: ride.avgLeanAngle,
+        maxGForce: ride.maxGForce,
         routePointsJson: ride.routePointsJson,
+        eventsJson: ride.eventsJson,
         scenicScore: ride.scenicScore,
         twistyScore: ride.twistyScore,
         title: ride.title,
@@ -161,15 +171,16 @@ router.put('/:localId', async (req, res) => {
         isPublic: ride.isPublic,
         elevationGain: ride.elevationGain,
         maxLeanAngle: ride.maxLeanAngle,
-        avgLeanAngle: ride.avgLeanAngle
+        avgLeanAngle: ride.avgLeanAngle,
+        maxGForce: ride.maxGForce
       },
       { new: true }
     );
-    
+
     if (!result) {
       return res.status(404).json({ error: 'Ride not found' });
     }
-    
+
     res.json({ message: 'Ride updated', id: result._id.toString() });
   } catch (error) {
     console.error('Update ride error:', error);

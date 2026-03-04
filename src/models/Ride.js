@@ -48,8 +48,14 @@ const rideSchema = new mongoose.Schema({
   maxLeanAngle: { type: Number, default: 0 },
   avgLeanAngle: { type: Number, default: 0 },
   
+  // G-Force stats
+  maxGForce: { type: Number, default: 0 },
+  
   // Route data - stored as JSON string for efficiency
   routePointsJson: { type: String, default: '[]' },
+  
+  // Events (hard braking, hard acceleration, etc.)
+  eventsJson: { type: String, default: '[]' },
   
   // Scores (0-100)
   scenicScore: { type: Number, default: 0 },
