@@ -26,10 +26,14 @@ if (!process.env.MONGODB_URI) {
 
 // Load routes after env check
 const authMiddleware = require('./middleware/auth');
+const authRouter = require('./routes/auth');
 const routesRouter = require('./routes/routes');
 const ridesRouter = require('./routes/rides');
 const tripsRouter = require('./routes/trips');
 const usersRouter = require('./routes/users');
+
+// Auth routes (no middleware - used for sign-in sync)
+app.use('/api/auth', authRouter);
 
 // Protected routes
 app.use('/api/routes', authMiddleware, routesRouter);
