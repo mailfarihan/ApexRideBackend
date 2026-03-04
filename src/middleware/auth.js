@@ -1,10 +1,15 @@
 const admin = require('firebase-admin');
 
 // Initialize Firebase Admin (for token verification)
-if (!admin.apps.length) {
-  admin.initializeApp({
-    projectId: process.env.FIREBASE_PROJECT_ID
-  });
+try {
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      projectId: process.env.FIREBASE_PROJECT_ID || 'apexride-9bdff'
+    });
+  }
+  console.log('✅ Firebase Admin initialized');
+} catch (error) {
+  console.error('⚠️ Firebase Admin init warning:', error.message);
 }
 
 const authMiddleware = async (req, res, next) => {
@@ -25,7 +30,7 @@ const authMiddleware = async (req, res, next) => {
     };
     next();
   } catch (error) {
-    console.error('Token verification failed:', error);
+    console.error('Token verification failed:', error.message);
     return res.status(401).json({ error: 'Invalid token' });
   }
 };

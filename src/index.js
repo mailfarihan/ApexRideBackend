@@ -5,11 +5,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 
-const authMiddleware = require('./middleware/auth');
-const routesRouter = require('./routes/routes');
-const ridesRouter = require('./routes/rides');
-const tripsRouter = require('./routes/trips');
-
 const app = express();
 
 // Middleware
@@ -22,6 +17,18 @@ app.use(express.json({ limit: '10mb' }));
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Check required env vars
+if (!process.env.MONGODB_URI) {
+  console.error('❌ MONGODB_URI environment variable is required');
+  process.exit(1);
+}
+
+// Load routes after env check
+const authMiddleware = require('./middleware/auth');
+const routesRouter = require('./routes/routes');
+const ridesRouter = require('./routes/rides');
+const tripsRouter = require('./routes/trips');
 
 // Protected routes
 app.use('/api/routes', authMiddleware, routesRouter);
@@ -40,11 +47,11 @@ const PORT = process.env.PORT || 3000;
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => {
     console.log('✅ Connected to MongoDB Atlas');
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
   })
   .catch(err => {
-    console.error('❌ MongoDB connection error:', err);
+    console.error('❌ MongoDB connection error:', err.message);
     process.exit(1);
   });
