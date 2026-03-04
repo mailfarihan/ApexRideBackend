@@ -29,11 +29,13 @@ const authMiddleware = require('./middleware/auth');
 const routesRouter = require('./routes/routes');
 const ridesRouter = require('./routes/rides');
 const tripsRouter = require('./routes/trips');
+const usersRouter = require('./routes/users');
 
 // Protected routes
 app.use('/api/routes', authMiddleware, routesRouter);
 app.use('/api/rides', authMiddleware, ridesRouter);
 app.use('/api/trips', authMiddleware, tripsRouter);
+app.use('/api/users', authMiddleware, usersRouter);
 
 // Error handler
 app.use((err, req, res, next) => {
