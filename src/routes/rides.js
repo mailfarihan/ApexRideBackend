@@ -146,4 +146,35 @@ router.delete('/:localId', async (req, res) => {
   }
 });
 
+// PUT /api/rides/:localId - Update a synced ride
+router.put('/:localId', async (req, res) => {
+  try {
+    const ride = req.body;
+    const result = await Ride.findOneAndUpdate(
+      { 
+        userId: req.user.uid, 
+        localId: parseInt(req.params.localId) 
+      },
+      {
+        title: ride.title,
+        notes: ride.notes,
+        isPublic: ride.isPublic,
+        elevationGain: ride.elevationGain,
+        maxLeanAngle: ride.maxLeanAngle,
+        avgLeanAngle: ride.avgLeanAngle
+      },
+      { new: true }
+    );
+    
+    if (!result) {
+      return res.status(404).json({ error: 'Ride not found' });
+    }
+    
+    res.json({ message: 'Ride updated', id: result._id.toString() });
+  } catch (error) {
+    console.error('Update ride error:', error);
+    res.status(500).json({ error: 'Failed to update ride' });
+  }
+});
+
 module.exports = router;
