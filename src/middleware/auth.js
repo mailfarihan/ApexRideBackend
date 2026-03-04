@@ -1,0 +1,33 @@
+const admin = require('firebase-admin');
+
+// Initialize Firebase Admin (for token verification)
+if (!admin.apps.length) {
+  admin.initializeApp({
+    projectId: process.env.FIREBASE_PROJECT_ID
+  });
+}
+
+const authMiddleware = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+
+  const token = authHeader.split('Bearer ')[1];
+
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    req.user = {
+      uid: decodedToken.uid,
+      email: decodedToken.email,
+      name: decodedToken.name || 'Anonymous'
+    };
+    next();
+  } catch (error) {
+    console.error('Token verification failed:', error);
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+module.exports = authMiddleware;

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: apexride-api
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        value: apexride-9bdff
