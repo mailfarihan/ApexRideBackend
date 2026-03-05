@@ -10,25 +10,36 @@ router.get('/', async (req, res) => {
       .lean();
     
     // Ensure all rides have default values for missing fields
-    const ridesWithDefaults = rides.map(ride => ({
-      ...ride,
-      distance: ride.distance ?? 0,
-      duration: ride.duration ?? 0,
-      avgSpeed: ride.avgSpeed ?? 0,
-      maxSpeed: ride.maxSpeed ?? 0,
-      elevationGain: ride.elevationGain ?? 0,
-      maxLeanAngle: ride.maxLeanAngle ?? 0,
-      avgLeanAngle: ride.avgLeanAngle ?? 0,
-      maxGForce: ride.maxGForce ?? 0,
-      routePointsJson: ride.routePointsJson ?? '[]',
-      eventsJson: ride.eventsJson ?? '[]',
-      scenicScore: ride.scenicScore ?? 0,
-      twistyScore: ride.twistyScore ?? 0,
-      title: ride.title ?? '',
-      notes: ride.notes ?? '',
-      region: ride.region ?? '',
-      isPublic: ride.isPublic ?? false
-    }));
+    // Exclude legacy large fields if new format is available
+    const ridesWithDefaults = rides.map(ride => {
+      const hasNewFormat = ride.encodedPolyline && ride.encodedPolyline.length > 0;
+      return {
+        ...ride,
+        distance: ride.distance ?? 0,
+        duration: ride.duration ?? 0,
+        avgSpeed: ride.avgSpeed ?? 0,
+        maxSpeed: ride.maxSpeed ?? 0,
+        elevationGain: ride.elevationGain ?? 0,
+        maxLeanAngle: ride.maxLeanAngle ?? 0,
+        avgLeanAngle: ride.avgLeanAngle ?? 0,
+        maxGForce: ride.maxGForce ?? 0,
+        // New format fields
+        encodedPolyline: ride.encodedPolyline ?? '',
+        samples: ride.samples ?? [],
+        telemetry: ride.telemetry ?? { speed: [], gForce: [], leanAngle: [], timestamp: [] },
+        events: ride.events ?? [],
+        // Legacy fields (only include if no new format)
+        routePointsJson: hasNewFormat ? undefined : (ride.routePointsJson ?? '[]'),
+        eventsJson: hasNewFormat ? undefined : (ride.eventsJson ?? '[]'),
+        // Other fields
+        scenicScore: ride.scenicScore ?? 0,
+        twistyScore: ride.twistyScore ?? 0,
+        title: ride.title ?? '',
+        notes: ride.notes ?? '',
+        region: ride.region ?? '',
+        isPublic: ride.isPublic ?? false
+      };
+    });
     
     res.json(ridesWithDefaults);
   } catch (error) {
@@ -50,37 +61,57 @@ router.post('/sync', async (req, res) => {
     
     for (const ride of rides) {
       try {
+        // Determine if using new format (has encodedPolyline) or legacy
+        const hasNewFormat = ride.encodedPolyline && ride.encodedPolyline.length > 0;
+        
+        // Build update document
+        const updateDoc = {
+          userId: req.user.uid,
+          localId: ride.localId,
+          startTime: ride.startTime,
+          endTime: ride.endTime,
+          distance: ride.distance,
+          duration: ride.duration,
+          avgSpeed: ride.avgSpeed,
+          maxSpeed: ride.maxSpeed,
+          elevationGain: ride.elevationGain,
+          maxLeanAngle: ride.maxLeanAngle,
+          avgLeanAngle: ride.avgLeanAngle,
+          maxGForce: ride.maxGForce,
+          scenicScore: ride.scenicScore,
+          twistyScore: ride.twistyScore,
+          title: ride.title,
+          notes: ride.notes,
+          region: ride.region,
+          isPublic: ride.isPublic,
+          startLocation: ride.startLat && ride.startLng ? {
+            type: 'Point',
+            coordinates: [ride.startLng, ride.startLat]
+          } : undefined
+        };
+        
+        // Add new format fields if present
+        if (hasNewFormat) {
+          updateDoc.encodedPolyline = ride.encodedPolyline;
+          updateDoc.samples = ride.samples || [];
+          updateDoc.telemetry = ride.telemetry || {};
+          updateDoc.events = ride.events || [];
+          // Clear legacy fields when new format is used
+          updateDoc.routePointsJson = '';
+          updateDoc.eventsJson = '[]';
+        } else {
+          // Legacy format
+          updateDoc.routePointsJson = ride.routePointsJson;
+          updateDoc.eventsJson = ride.eventsJson;
+        }
+        
         // Upsert: update if exists, insert if not
         const result = await Ride.findOneAndUpdate(
           { 
             userId: req.user.uid, 
             localId: ride.localId 
           },
-          {
-            userId: req.user.uid,
-            localId: ride.localId,
-            startTime: ride.startTime,
-            endTime: ride.endTime,
-            distance: ride.distance,
-            duration: ride.duration,
-            avgSpeed: ride.avgSpeed,
-            maxSpeed: ride.maxSpeed,
-            elevationGain: ride.elevationGain,
-            maxLeanAngle: ride.maxLeanAngle,
-            avgLeanAngle: ride.avgLeanAngle,
-            maxGForce: ride.maxGForce,
-            routePointsJson: ride.routePointsJson,
-            eventsJson: ride.eventsJson,
-            scenicScore: ride.scenicScore,
-            twistyScore: ride.twistyScore,
-            title: ride.title,
-            notes: ride.notes,
-            region: ride.region,
-            startLocation: ride.startLat && ride.startLng ? {
-              type: 'Point',
-              coordinates: [ride.startLng, ride.startLat]
-            } : undefined
-          },
+          updateDoc,
           { upsert: true, new: true }
         );
         
@@ -114,36 +145,52 @@ router.post('/', async (req, res) => {
   try {
     const ride = req.body;
     
+    // Determine if using new format
+    const hasNewFormat = ride.encodedPolyline && ride.encodedPolyline.length > 0;
+    
+    const updateDoc = {
+      userId: req.user.uid,
+      localId: ride.localId,
+      startTime: ride.startTime,
+      endTime: ride.endTime,
+      distance: ride.distance,
+      duration: ride.duration,
+      avgSpeed: ride.avgSpeed,
+      maxSpeed: ride.maxSpeed,
+      elevationGain: ride.elevationGain,
+      maxLeanAngle: ride.maxLeanAngle,
+      avgLeanAngle: ride.avgLeanAngle,
+      maxGForce: ride.maxGForce,
+      scenicScore: ride.scenicScore,
+      twistyScore: ride.twistyScore,
+      title: ride.title,
+      notes: ride.notes,
+      region: ride.region,
+      isPublic: ride.isPublic,
+      startLocation: ride.startLat && ride.startLng ? {
+        type: 'Point',
+        coordinates: [ride.startLng, ride.startLat]
+      } : undefined
+    };
+    
+    if (hasNewFormat) {
+      updateDoc.encodedPolyline = ride.encodedPolyline;
+      updateDoc.samples = ride.samples || [];
+      updateDoc.telemetry = ride.telemetry || {};
+      updateDoc.events = ride.events || [];
+      updateDoc.routePointsJson = '';
+      updateDoc.eventsJson = '[]';
+    } else {
+      updateDoc.routePointsJson = ride.routePointsJson;
+      updateDoc.eventsJson = ride.eventsJson;
+    }
+    
     const result = await Ride.findOneAndUpdate(
       { 
         userId: req.user.uid, 
         localId: ride.localId 
       },
-      {
-        userId: req.user.uid,
-        localId: ride.localId,
-        startTime: ride.startTime,
-        endTime: ride.endTime,
-        distance: ride.distance,
-        duration: ride.duration,
-        avgSpeed: ride.avgSpeed,
-        maxSpeed: ride.maxSpeed,
-        elevationGain: ride.elevationGain,
-        maxLeanAngle: ride.maxLeanAngle,
-        avgLeanAngle: ride.avgLeanAngle,
-        maxGForce: ride.maxGForce,
-        routePointsJson: ride.routePointsJson,
-        eventsJson: ride.eventsJson,
-        scenicScore: ride.scenicScore,
-        twistyScore: ride.twistyScore,
-        title: ride.title,
-        notes: ride.notes,
-        region: ride.region,
-        startLocation: ride.startLat && ride.startLng ? {
-          type: 'Point',
-          coordinates: [ride.startLng, ride.startLat]
-        } : undefined
-      },
+      updateDoc,
       { upsert: true, new: true }
     );
     

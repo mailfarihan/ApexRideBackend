@@ -51,10 +51,41 @@ const rideSchema = new mongoose.Schema({
   // G-Force stats
   maxGForce: { type: Number, default: 0 },
   
-  // Route data - stored as JSON string for efficiency
+  // ==================== NEW: Processed route data ====================
+  // Encoded polyline for efficient route storage (Google Polyline Algorithm)
+  encodedPolyline: { type: String, default: '' },
+  
+  // Simplified coordinate samples for replay feature
+  samples: [{
+    lat: Number,
+    lon: Number,
+    t: Number      // Relative time in seconds from ride start
+  }],
+  
+  // Sampled telemetry data for graphs (parallel arrays)
+  telemetry: {
+    speed: [Number],      // km/h
+    gForce: [Number],     // G
+    leanAngle: [Number],  // degrees (negative=left, positive=right)
+    timestamp: [Number]   // Relative ms from ride start
+  },
+  
+  // Ride events with location
+  events: [{
+    type: { type: String },  // RAPID_ACCELERATION, HARD_BRAKING, EXTREME_LEAN, etc.
+    latitude: Number,
+    longitude: Number,
+    value: Number,
+    severity: String,        // MODERATE, HIGH, EXTREME
+    speedAtEvent: Number,
+    timestamp: Number
+  }],
+  
+  // ==================== LEGACY (for backward compatibility) ====================
+  // Route data - stored as JSON string (deprecated, use encodedPolyline + samples)
   routePointsJson: { type: String, default: '[]' },
   
-  // Events (hard braking, hard acceleration, etc.)
+  // Events JSON (deprecated, use events array)
   eventsJson: { type: String, default: '[]' },
   
   // Scores (0-100)
