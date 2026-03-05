@@ -9,7 +9,28 @@ router.get('/', async (req, res) => {
       .sort({ startTime: -1 })
       .lean();
     
-    res.json(rides);
+    // Ensure all rides have default values for missing fields
+    const ridesWithDefaults = rides.map(ride => ({
+      ...ride,
+      distance: ride.distance ?? 0,
+      duration: ride.duration ?? 0,
+      avgSpeed: ride.avgSpeed ?? 0,
+      maxSpeed: ride.maxSpeed ?? 0,
+      elevationGain: ride.elevationGain ?? 0,
+      maxLeanAngle: ride.maxLeanAngle ?? 0,
+      avgLeanAngle: ride.avgLeanAngle ?? 0,
+      maxGForce: ride.maxGForce ?? 0,
+      routePointsJson: ride.routePointsJson ?? '[]',
+      eventsJson: ride.eventsJson ?? '[]',
+      scenicScore: ride.scenicScore ?? 0,
+      twistyScore: ride.twistyScore ?? 0,
+      title: ride.title ?? '',
+      notes: ride.notes ?? '',
+      region: ride.region ?? '',
+      isPublic: ride.isPublic ?? false
+    }));
+    
+    res.json(ridesWithDefaults);
   } catch (error) {
     console.error('Get rides error:', error);
     res.status(500).json({ error: 'Failed to get rides' });

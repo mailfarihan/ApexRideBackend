@@ -2,108 +2,186 @@ const express = require('express');
 const router = express.Router();
 const Trip = require('../models/Trip');
 
-// GET /api/trips - Get user's planned trips
+// GET /api/trips - Get user's group rides (created + joined)
 router.get('/', async (req, res) => {
   try {
-    const trips = await Trip.find({ 
-      creatorId: req.user.uid 
+    const userId = req.user.uid;
+    
+    // Get rides where user is creator OR attendee
+    const trips = await Trip.find({
+      $or: [
+        { creatorId: userId },
+        { attendeeIds: userId }
+      ]
     })
-    .sort({ plannedDate: 1 })
+    .sort({ dateTime: 1 })
     .lean();
     
     res.json(trips);
   } catch (error) {
     console.error('Get trips error:', error);
-    res.status(500).json({ error: 'Failed to get trips' });
+    res.status(500).json({ error: 'Failed to get group rides' });
   }
 });
 
-// GET /api/trips/nearby - Find upcoming trips near a location
-router.get('/nearby', async (req, res) => {
+// GET /api/trips/discover - Discover public upcoming group rides
+router.get('/discover', async (req, res) => {
   try {
-    const { lat, lng, radiusKm = 50, limit = 20 } = req.query;
+    const { lat, lng, radiusKm = 100, limit = 50 } = req.query;
     
-    if (!lat || !lng) {
-      return res.status(400).json({ error: 'lat and lng required' });
-    }
+    const now = Date.now();
     
-    const trips = await Trip.aggregate([
-      {
-        $geoNear: {
-          near: {
-            type: 'Point',
-            coordinates: [parseFloat(lng), parseFloat(lat)]
-          },
-          distanceField: 'distance',
-          maxDistance: parseFloat(radiusKm) * 1000, // meters
-          spherical: true,
-          query: {
-            isPublic: true,
-            plannedDate: { $gte: new Date() } // Only future trips
+    // Base query: public, upcoming, in the future
+    let query = {
+      isPublic: true,
+      status: 'upcoming',
+      dateTime: { $gte: now }
+    };
+    
+    let trips;
+    
+    if (lat && lng) {
+      // Geo query if location provided
+      trips = await Trip.aggregate([
+        {
+          $geoNear: {
+            near: {
+              type: 'Point',
+              coordinates: [parseFloat(lng), parseFloat(lat)]
+            },
+            distanceField: 'distanceMeters',
+            maxDistance: parseFloat(radiusKm) * 1000,
+            spherical: true,
+            query: query
+          }
+        },
+        { $limit: parseInt(limit) },
+        {
+          $addFields: {
+            distanceKm: { $divide: ['$distanceMeters', 1000] },
+            attendeeCount: { $size: '$attendeeIds' }
           }
         }
-      },
-      { $limit: parseInt(limit) },
-      {
-        $project: {
-          title: 1,
-          description: 1,
-          plannedDate: 1,
-          meetupLocation: 1,
-          creatorId: 1,
-          routeId: 1,
-          rideStyle: 1,
-          maxParticipants: 1,
-          participants: 1,
-          participantCount: { $size: '$participants' },
-          distance: { $divide: ['$distance', 1000] } // km
-        }
-      }
-    ]);
+      ]);
+    } else {
+      // No location - just get upcoming rides sorted by date
+      trips = await Trip.find(query)
+        .sort({ dateTime: 1 })
+        .limit(parseInt(limit))
+        .lean();
+      
+      // Add attendee count
+      trips = trips.map(t => ({
+        ...t,
+        attendeeCount: t.attendeeIds?.length || 0
+      }));
+    }
     
     res.json(trips);
   } catch (error) {
-    console.error('Get nearby trips error:', error);
-    res.status(500).json({ error: 'Failed to get nearby trips' });
+    console.error('Discover trips error:', error);
+    res.status(500).json({ error: 'Failed to discover group rides' });
   }
 });
 
-// POST /api/trips - Create a new trip
+// GET /api/trips/:id - Get single group ride details
+router.get('/:id', async (req, res) => {
+  try {
+    const trip = await Trip.findById(req.params.id).lean();
+    
+    if (!trip) {
+      return res.status(404).json({ error: 'Group ride not found' });
+    }
+    
+    // Check if private and user not authorized
+    if (!trip.isPublic && 
+        trip.creatorId !== req.user.uid && 
+        !trip.attendeeIds.includes(req.user.uid)) {
+      return res.status(403).json({ error: 'This group ride is private' });
+    }
+    
+    res.json({
+      ...trip,
+      attendeeCount: trip.attendeeIds?.length || 0,
+      isCreator: trip.creatorId === req.user.uid,
+      isJoined: trip.attendeeIds?.includes(req.user.uid) || false
+    });
+  } catch (error) {
+    console.error('Get trip error:', error);
+    res.status(500).json({ error: 'Failed to get group ride' });
+  }
+});
+
+// POST /api/trips - Create a new group ride
 router.post('/', async (req, res) => {
   try {
+    const { 
+      title, description, dateTime, 
+      meetupLat, meetupLng, meetupAddress,
+      estimatedDuration, estimatedDistance, difficulty,
+      linkedRouteId, maxRiders, isPublic 
+    } = req.body;
+    
+    if (!title || !dateTime || !meetupLat || !meetupLng) {
+      return res.status(400).json({ 
+        error: 'title, dateTime, meetupLat, and meetupLng are required' 
+      });
+    }
+    
     const trip = new Trip({
-      ...req.body,
       creatorId: req.user.uid,
-      meetupLocation: req.body.meetupLat && req.body.meetupLng ? {
+      creatorName: req.user.name || 'Anonymous',
+      creatorPhotoUrl: req.user.picture || '',
+      title,
+      description: description || '',
+      dateTime,
+      meetupLocation: {
         type: 'Point',
-        coordinates: [req.body.meetupLng, req.body.meetupLat]
-      } : undefined,
-      participants: [req.user.uid] // Creator auto-joins
+        coordinates: [meetupLng, meetupLat]
+      },
+      meetupAddress: meetupAddress || '',
+      estimatedDuration: estimatedDuration || 0,
+      estimatedDistance: estimatedDistance || 0,
+      difficulty: difficulty || 'moderate',
+      linkedRouteId: linkedRouteId || null,
+      maxRiders: maxRiders || 0,
+      isPublic: isPublic !== false, // Default true
+      attendeeIds: [req.user.uid], // Creator auto-joins
+      status: 'upcoming'
     });
     
     await trip.save();
     res.status(201).json(trip);
   } catch (error) {
     console.error('Create trip error:', error);
-    res.status(500).json({ error: 'Failed to create trip' });
+    res.status(500).json({ error: 'Failed to create group ride' });
   }
 });
 
-// PUT /api/trips/:id - Update a trip
+// PUT /api/trips/:id - Update a group ride (creator only)
 router.put('/:id', async (req, res) => {
   try {
     const trip = await Trip.findOne({
       _id: req.params.id,
-      creatorId: req.user.uid // Only creator can edit
+      creatorId: req.user.uid
     });
     
     if (!trip) {
-      return res.status(404).json({ error: 'Trip not found or not authorized' });
+      return res.status(404).json({ error: 'Group ride not found or not authorized' });
     }
     
-    // Update fields
-    const updateFields = ['title', 'description', 'plannedDate', 'routeId', 
-                         'rideStyle', 'maxParticipants', 'isPublic'];
+    // Only allow updates if still upcoming
+    if (trip.status !== 'upcoming') {
+      return res.status(400).json({ error: 'Can only edit upcoming group rides' });
+    }
+    
+    // Updatable fields
+    const updateFields = [
+      'title', 'description', 'dateTime', 'meetupAddress',
+      'estimatedDuration', 'estimatedDistance', 'difficulty',
+      'linkedRouteId', 'maxRiders', 'isPublic'
+    ];
+    
     updateFields.forEach(field => {
       if (req.body[field] !== undefined) {
         trip[field] = req.body[field];
@@ -122,85 +200,214 @@ router.put('/:id', async (req, res) => {
     res.json(trip);
   } catch (error) {
     console.error('Update trip error:', error);
-    res.status(500).json({ error: 'Failed to update trip' });
+    res.status(500).json({ error: 'Failed to update group ride' });
   }
 });
 
-// POST /api/trips/:id/join - Join a trip
+// POST /api/trips/:id/join - Join a group ride
 router.post('/:id/join', async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     
     if (!trip) {
-      return res.status(404).json({ error: 'Trip not found' });
+      return res.status(404).json({ error: 'Group ride not found' });
     }
     
     if (!trip.isPublic && trip.creatorId !== req.user.uid) {
-      return res.status(403).json({ error: 'This trip is private' });
+      return res.status(403).json({ error: 'This group ride is private' });
     }
     
-    if (trip.participants.includes(req.user.uid)) {
-      return res.status(400).json({ error: 'Already joined this trip' });
+    if (trip.status !== 'upcoming') {
+      return res.status(400).json({ error: 'Can only join upcoming group rides' });
     }
     
-    if (trip.maxParticipants && trip.participants.length >= trip.maxParticipants) {
-      return res.status(400).json({ error: 'Trip is full' });
+    if (trip.attendeeIds.includes(req.user.uid)) {
+      return res.status(400).json({ error: 'Already joined this group ride' });
     }
     
-    trip.participants.push(req.user.uid);
+    if (trip.maxRiders > 0 && trip.attendeeIds.length >= trip.maxRiders) {
+      return res.status(400).json({ error: 'Group ride is full' });
+    }
+    
+    trip.attendeeIds.push(req.user.uid);
     await trip.save();
     
-    res.json({ message: 'Joined trip', participantCount: trip.participants.length });
+    res.json({ 
+      message: 'Joined group ride', 
+      attendeeCount: trip.attendeeIds.length 
+    });
   } catch (error) {
     console.error('Join trip error:', error);
-    res.status(500).json({ error: 'Failed to join trip' });
+    res.status(500).json({ error: 'Failed to join group ride' });
   }
 });
 
-// POST /api/trips/:id/leave - Leave a trip
+// POST /api/trips/:id/leave - Leave a group ride
 router.post('/:id/leave', async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id);
     
     if (!trip) {
-      return res.status(404).json({ error: 'Trip not found' });
+      return res.status(404).json({ error: 'Group ride not found' });
     }
     
     if (trip.creatorId === req.user.uid) {
-      return res.status(400).json({ error: 'Creator cannot leave. Delete the trip instead.' });
+      return res.status(400).json({ 
+        error: 'Creator cannot leave. Cancel the group ride instead.' 
+      });
     }
     
-    const idx = trip.participants.indexOf(req.user.uid);
+    const idx = trip.attendeeIds.indexOf(req.user.uid);
     if (idx === -1) {
-      return res.status(400).json({ error: 'Not a participant of this trip' });
+      return res.status(400).json({ error: 'Not a participant of this group ride' });
     }
     
-    trip.participants.splice(idx, 1);
+    trip.attendeeIds.splice(idx, 1);
     await trip.save();
     
-    res.json({ message: 'Left trip', participantCount: trip.participants.length });
+    res.json({ 
+      message: 'Left group ride', 
+      attendeeCount: trip.attendeeIds.length 
+    });
   } catch (error) {
     console.error('Leave trip error:', error);
-    res.status(500).json({ error: 'Failed to leave trip' });
+    res.status(500).json({ error: 'Failed to leave group ride' });
   }
 });
 
-// DELETE /api/trips/:id - Delete a trip
+// POST /api/trips/:id/start - Start a group ride (creator only)
+router.post('/:id/start', async (req, res) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      creatorId: req.user.uid
+    });
+    
+    if (!trip) {
+      return res.status(404).json({ error: 'Group ride not found or not authorized' });
+    }
+    
+    if (trip.status !== 'upcoming') {
+      return res.status(400).json({ error: 'Group ride already started or completed' });
+    }
+    
+    trip.status = 'ongoing';
+    trip.actualStartTime = Date.now();
+    await trip.save();
+    
+    res.json({ message: 'Group ride started', trip });
+  } catch (error) {
+    console.error('Start trip error:', error);
+    res.status(500).json({ error: 'Failed to start group ride' });
+  }
+});
+
+// POST /api/trips/:id/complete - Complete a group ride (creator only)
+router.post('/:id/complete', async (req, res) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      creatorId: req.user.uid
+    });
+    
+    if (!trip) {
+      return res.status(404).json({ error: 'Group ride not found or not authorized' });
+    }
+    
+    if (trip.status !== 'ongoing') {
+      return res.status(400).json({ error: 'Group ride must be ongoing to complete' });
+    }
+    
+    trip.status = 'completed';
+    trip.actualEndTime = Date.now();
+    trip.totalParticipants = trip.attendeeIds.length;
+    await trip.save();
+    
+    res.json({ message: 'Group ride completed', trip });
+  } catch (error) {
+    console.error('Complete trip error:', error);
+    res.status(500).json({ error: 'Failed to complete group ride' });
+  }
+});
+
+// POST /api/trips/:id/cancel - Cancel a group ride (creator only)
+router.post('/:id/cancel', async (req, res) => {
+  try {
+    const trip = await Trip.findOne({
+      _id: req.params.id,
+      creatorId: req.user.uid
+    });
+    
+    if (!trip) {
+      return res.status(404).json({ error: 'Group ride not found or not authorized' });
+    }
+    
+    if (trip.status === 'completed') {
+      return res.status(400).json({ error: 'Cannot cancel a completed group ride' });
+    }
+    
+    trip.status = 'cancelled';
+    await trip.save();
+    
+    res.json({ message: 'Group ride cancelled' });
+  } catch (error) {
+    console.error('Cancel trip error:', error);
+    res.status(500).json({ error: 'Failed to cancel group ride' });
+  }
+});
+
+// POST /api/trips/:id/link-ride - Link a completed ride to this group ride
+router.post('/:id/link-ride', async (req, res) => {
+  try {
+    const { rideId } = req.body;
+    
+    if (!rideId) {
+      return res.status(400).json({ error: 'rideId is required' });
+    }
+    
+    const trip = await Trip.findById(req.params.id);
+    
+    if (!trip) {
+      return res.status(404).json({ error: 'Group ride not found' });
+    }
+    
+    // User must be a participant
+    if (!trip.attendeeIds.includes(req.user.uid)) {
+      return res.status(403).json({ error: 'Not a participant of this group ride' });
+    }
+    
+    // Add the ride ID if not already linked
+    if (!trip.completedRideIds.includes(rideId)) {
+      trip.completedRideIds.push(rideId);
+      await trip.save();
+    }
+    
+    res.json({ message: 'Ride linked to group ride' });
+  } catch (error) {
+    console.error('Link ride error:', error);
+    res.status(500).json({ error: 'Failed to link ride' });
+  }
+});
+
+// DELETE /api/trips/:id - Delete a group ride (creator only, upcoming only)
 router.delete('/:id', async (req, res) => {
   try {
     const result = await Trip.findOneAndDelete({
       _id: req.params.id,
-      creatorId: req.user.uid // Only creator can delete
+      creatorId: req.user.uid,
+      status: 'upcoming' // Can only delete upcoming rides
     });
     
     if (!result) {
-      return res.status(404).json({ error: 'Trip not found or not authorized' });
+      return res.status(404).json({ 
+        error: 'Group ride not found, not authorized, or already started' 
+      });
     }
     
-    res.json({ message: 'Trip deleted' });
+    res.json({ message: 'Group ride deleted' });
   } catch (error) {
     console.error('Delete trip error:', error);
-    res.status(500).json({ error: 'Failed to delete trip' });
+    res.status(500).json({ error: 'Failed to delete group ride' });
   }
 });
 
