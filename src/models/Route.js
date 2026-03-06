@@ -47,6 +47,7 @@ const routeSchema = new mongoose.Schema({
 
 // 2dsphere index for geo queries
 routeSchema.index({ startLocation: '2dsphere' });
+routeSchema.index({ endLocation: '2dsphere' });
 routeSchema.index({ createdAt: -1 });
 routeSchema.index({ scenicScore: -1 });
 routeSchema.index({ ratingAvg: -1 });

@@ -8,43 +8,84 @@ router.get('/', async (req, res) => {
     const { lat, lng, radiusKm, sortBy, limit = 50 } = req.query;
     
     let query = { isPublic: true };
-    let aggregation = [];
     
-    // If location provided, use $geoNear
+    // If location provided, filter routes where start OR end is within radius
     if (lat && lng) {
-      const radiusMeters = (parseFloat(radiusKm) || 50) * 1000;
+      const latitude = parseFloat(lat);
+      const longitude = parseFloat(lng);
+      const radiusInRadians = (parseFloat(radiusKm) || 50) / 6378.1; // Earth radius in km
       
-      aggregation.push({
-        $geoNear: {
-          near: {
-            type: 'Point',
-            coordinates: [parseFloat(lng), parseFloat(lat)]
-          },
-          distanceField: 'distanceFromUser',
-          maxDistance: radiusMeters,
-          query: { isPublic: true },
-          spherical: true
+      // Use $geoWithin with $centerSphere to find routes where
+      // EITHER start OR end location is within the specified radius
+      query.$or = [
+        {
+          startLocation: {
+            $geoWithin: {
+              $centerSphere: [[longitude, latitude], radiusInRadians]
+            }
+          }
+        },
+        {
+          endLocation: {
+            $geoWithin: {
+              $centerSphere: [[longitude, latitude], radiusInRadians]
+            }
+          }
         }
-      });
-      
-      // Sort options after geoNear
-      if (sortBy === 'scenic') {
-        aggregation.push({ $sort: { scenicScore: -1 } });
-      } else if (sortBy === 'rating') {
-        aggregation.push({ $sort: { ratingAvg: -1 } });
-      }
-      // Default: sorted by distance (geoNear default)
-      
-      aggregation.push({ $limit: parseInt(limit) });
-      
-      const routes = await Route.aggregate(aggregation);
-      return res.json(routes);
+      ];
     }
     
-    // No location - simple query
+    // Sort options
     let sort = { createdAt: -1 };
     if (sortBy === 'scenic') sort = { scenicScore: -1 };
     if (sortBy === 'rating') sort = { ratingAvg: -1 };
+    if (sortBy === 'distance' && lat && lng) {
+      // For distance sort, we need to calculate distance manually
+      // Using aggregation with $geoNear won't work with $or
+      // So we'll add distance calculation in aggregation
+      const latitude = parseFloat(lat);
+      const longitude = parseFloat(lng);
+      
+      const routes = await Route.aggregate([
+        { $match: query },
+        {
+          $addFields: {
+            // Calculate distance to start point (in meters)
+            distanceToStart: {
+              $multiply: [
+                6378100, // Earth radius in meters
+                {
+                  $acos: {
+                    $add: [
+                      {
+                        $multiply: [
+                          { $sin: { $degreesToRadians: latitude } },
+                          { $sin: { $degreesToRadians: { $arrayElemAt: ['$startLocation.coordinates', 1] } } }
+                        ]
+                      },
+                      {
+                        $multiply: [
+                          { $cos: { $degreesToRadians: latitude } },
+                          { $cos: { $degreesToRadians: { $arrayElemAt: ['$startLocation.coordinates', 1] } } },
+                          { $cos: { $subtract: [
+                            { $degreesToRadians: { $arrayElemAt: ['$startLocation.coordinates', 0] } },
+                            { $degreesToRadians: longitude }
+                          ]}}
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        { $sort: { distanceToStart: 1 } },
+        { $limit: parseInt(limit) }
+      ]);
+      
+      return res.json(routes);
+    }
     
     const routes = await Route.find(query)
       .sort(sort)
