@@ -3,6 +3,8 @@ const mongoose = require('mongoose');
 const routeSchema = new mongoose.Schema({
   creatorId: { type: String, required: true, index: true },
   creatorName: { type: String, required: true },
+  creatorPhotoUrl: { type: String, default: '' },
+  sourceRideId: { type: String, default: null }, // Links to original ride if published from one
   title: { type: String, required: true },
   description: { type: String, default: '' },
   region: { type: String, default: '' },

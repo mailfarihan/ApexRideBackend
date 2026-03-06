@@ -58,6 +58,20 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/routes/my - Get current user's routes
+router.get('/my', async (req, res) => {
+  try {
+    const routes = await Route.find({ creatorId: req.user.uid })
+      .sort({ createdAt: -1 })
+      .lean();
+    
+    res.json(routes);
+  } catch (error) {
+    console.error('Get my routes error:', error);
+    res.status(500).json({ error: 'Failed to get routes' });
+  }
+});
+
 // GET /api/routes/:id - Get single route
 router.get('/:id', async (req, res) => {
   try {
@@ -79,12 +93,14 @@ router.post('/', async (req, res) => {
       title, description, region, encodedPolyline,
       startLat, startLng, endLat, endLng,
       distance, duration, avgSpeed, maxSpeed, elevationGain,
-      scenicScore, twistyScore, tags
+      scenicScore, twistyScore, tags, sourceRideId
     } = req.body;
     
     const route = new Route({
       creatorId: req.user.uid,
       creatorName: req.user.name,
+      creatorPhotoUrl: req.user.picture || '',
+      sourceRideId: sourceRideId || null,
       title,
       description,
       region,
@@ -108,7 +124,7 @@ router.post('/', async (req, res) => {
     });
     
     await route.save();
-    res.status(201).json({ id: route._id, message: 'Route published' });
+    res.status(201).json(route);
   } catch (error) {
     console.error('Publish route error:', error);
     res.status(500).json({ error: 'Failed to publish route' });
@@ -139,6 +155,33 @@ router.post('/:id/rate', async (req, res) => {
   } catch (error) {
     console.error('Rate route error:', error);
     res.status(500).json({ error: 'Failed to rate route' });
+  }
+});
+
+// PATCH /api/routes/:id - Update own route
+router.patch('/:id', async (req, res) => {
+  try {
+    const route = await Route.findById(req.params.id);
+    if (!route) {
+      return res.status(404).json({ error: 'Route not found' });
+    }
+    
+    if (route.creatorId !== req.user.uid) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+    
+    const { title, description, isPublic, tags } = req.body;
+    
+    if (title !== undefined) route.title = title;
+    if (description !== undefined) route.description = description;
+    if (isPublic !== undefined) route.isPublic = isPublic;
+    if (tags !== undefined) route.tags = tags;
+    
+    await route.save();
+    res.json(route);
+  } catch (error) {
+    console.error('Update route error:', error);
+    res.status(500).json({ error: 'Failed to update route' });
   }
 });
 
