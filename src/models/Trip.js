@@ -31,6 +31,12 @@ const groupRideSchema = new mongoose.Schema({
   estimatedDistance: { type: Number, default: 0 }, // km
   difficulty: { type: String, enum: ['easy', 'moderate', 'challenging', 'expert'], default: 'moderate' },
   
+  // Riding style tags (multiselect)
+  ridingStyles: [{ type: String }],
+  
+  // Extra info / rules / notes from organizer
+  extraInfo: { type: String, default: '' },
+  
   // Visibility & Participants
   isPublic: { type: Boolean, default: true },
   maxRiders: { type: Number, default: 0 }, // 0 = unlimited

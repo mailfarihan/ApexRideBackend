@@ -119,7 +119,8 @@ router.post('/', async (req, res) => {
       title, description, dateTime, 
       meetupLat, meetupLng, meetupAddress,
       estimatedDuration, estimatedDistance, difficulty,
-      linkedRouteId, maxRiders, isPublic 
+      linkedRouteId, maxRiders, isPublic,
+      ridingStyles, extraInfo
     } = req.body;
     
     if (!title || !dateTime || !meetupLat || !meetupLng) {
@@ -144,6 +145,8 @@ router.post('/', async (req, res) => {
       estimatedDistance: estimatedDistance || 0,
       difficulty: difficulty || 'moderate',
       linkedRouteId: linkedRouteId || null,
+      ridingStyles: ridingStyles || [],
+      extraInfo: extraInfo || '',
       maxRiders: maxRiders || 0,
       isPublic: isPublic !== false, // Default true
       attendeeIds: [req.user.uid], // Creator auto-joins
@@ -179,7 +182,8 @@ router.put('/:id', async (req, res) => {
     const updateFields = [
       'title', 'description', 'dateTime', 'meetupAddress',
       'estimatedDuration', 'estimatedDistance', 'difficulty',
-      'linkedRouteId', 'maxRiders', 'isPublic'
+      'linkedRouteId', 'ridingStyles', 'extraInfo',
+      'maxRiders', 'isPublic'
     ];
     
     updateFields.forEach(field => {
