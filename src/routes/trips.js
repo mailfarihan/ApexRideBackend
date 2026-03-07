@@ -17,7 +17,15 @@ router.get('/', async (req, res) => {
     .sort({ dateTime: 1 })
     .lean();
     
-    res.json(trips);
+    // Add computed fields for the client
+    const enrichedTrips = trips.map(t => ({
+      ...t,
+      attendeeCount: t.attendeeIds?.length || 0,
+      isCreator: t.creatorId === userId,
+      isJoined: t.attendeeIds?.includes(userId) || false
+    }));
+    
+    res.json(enrichedTrips);
   } catch (error) {
     console.error('Get trips error:', error);
     res.status(500).json({ error: 'Failed to get group rides' });
@@ -69,13 +77,16 @@ router.get('/discover', async (req, res) => {
         .sort({ dateTime: 1 })
         .limit(parseInt(limit))
         .lean();
-      
-      // Add attendee count
-      trips = trips.map(t => ({
-        ...t,
-        attendeeCount: t.attendeeIds?.length || 0
-      }));
     }
+    
+    // Add computed fields for the client
+    const userId = req.user.uid;
+    trips = trips.map(t => ({
+      ...t,
+      attendeeCount: t.attendeeIds?.length || 0,
+      isCreator: t.creatorId === userId,
+      isJoined: t.attendeeIds?.includes(userId) || false
+    }));
     
     res.json(trips);
   } catch (error) {
