@@ -13,3 +13,7 @@ services:
         sync: false
       - key: FIREBASE_PROJECT_ID
         value: apexride-9bdff
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+      - key: GOOGLE_STATIC_MAPS_API_KEY
+        sync: false

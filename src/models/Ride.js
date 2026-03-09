@@ -98,6 +98,10 @@ const rideSchema = new mongoose.Schema({
   region: { type: String, default: '' },
   isPublic: { type: Boolean, default: false },
   
+  // Map preview images (generated via Google Static Maps API)
+  mapImageLightUrl: { type: String, default: '' },
+  mapImageDarkUrl: { type: String, default: '' },
+  
   // Start location for quick geo lookups
   startLocation: {
     type: { type: String, enum: ['Point'], default: 'Point' },

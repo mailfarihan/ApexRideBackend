@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const Trip = require('../models/Trip');
+const Route = require('../models/Route');
+const { generateMapImages, generateMapImagesForPoint, copyMapImages, deleteMapImages } = require('../services/mapImage');
 
 // GET /api/trips - Get user's group rides (created + joined)
 router.get('/', async (req, res) => {
@@ -140,6 +142,22 @@ router.post('/', async (req, res) => {
       });
     }
     
+    // Generate map images based on location type
+    let mapImages = { mapImageLightUrl: '', mapImageDarkUrl: '' };
+    if (linkedRouteId) {
+      // Copy images from the linked route
+      const linkedRoute = await Route.findById(linkedRouteId).lean();
+      if (linkedRoute?.mapImageLightUrl) {
+        mapImages = await copyMapImages(linkedRoute.mapImageLightUrl, linkedRoute.mapImageDarkUrl, 'groupride');
+      } else if (linkedRoute?.encodedPolyline) {
+        mapImages = await generateMapImages(linkedRoute.encodedPolyline, 'groupride');
+      }
+    }
+    // If no route images, generate from meetup point
+    if (!mapImages.mapImageLightUrl) {
+      mapImages = await generateMapImagesForPoint(meetupLat, meetupLng, 'groupride');
+    }
+    
     const trip = new Trip({
       creatorId: req.user.uid,
       creatorName: req.user.name || 'Anonymous',
@@ -161,7 +179,9 @@ router.post('/', async (req, res) => {
       maxRiders: maxRiders || 0,
       isPublic: isPublic !== false, // Default true
       attendeeIds: [req.user.uid], // Creator auto-joins
-      status: 'upcoming'
+      status: 'upcoming',
+      mapImageLightUrl: mapImages.mapImageLightUrl,
+      mapImageDarkUrl: mapImages.mapImageDarkUrl
     });
     
     await trip.save();
@@ -187,6 +207,36 @@ router.put('/:id', async (req, res) => {
     // Only allow updates if still upcoming
     if (trip.status !== 'upcoming') {
       return res.status(400).json({ error: 'Can only edit upcoming group rides' });
+    }
+    
+    // Check if linkedRouteId or location changed — regenerate images
+    const routeChanged = req.body.linkedRouteId !== undefined && req.body.linkedRouteId !== (trip.linkedRouteId?.toString() || null);
+    const locationChanged = req.body.meetupLat && req.body.meetupLng && 
+      (req.body.meetupLat !== trip.meetupLocation.coordinates[1] || 
+       req.body.meetupLng !== trip.meetupLocation.coordinates[0]);
+    
+    if (routeChanged || locationChanged) {
+      // Delete old images
+      deleteMapImages(trip.mapImageLightUrl, trip.mapImageDarkUrl).catch(() => {});
+      
+      // Generate new images
+      let mapImages = { mapImageLightUrl: '', mapImageDarkUrl: '' };
+      const newRouteId = req.body.linkedRouteId;
+      if (newRouteId) {
+        const linkedRoute = await Route.findById(newRouteId).lean();
+        if (linkedRoute?.mapImageLightUrl) {
+          mapImages = await copyMapImages(linkedRoute.mapImageLightUrl, linkedRoute.mapImageDarkUrl, 'groupride');
+        } else if (linkedRoute?.encodedPolyline) {
+          mapImages = await generateMapImages(linkedRoute.encodedPolyline, 'groupride');
+        }
+      }
+      if (!mapImages.mapImageLightUrl) {
+        const lat = req.body.meetupLat || trip.meetupLocation.coordinates[1];
+        const lng = req.body.meetupLng || trip.meetupLocation.coordinates[0];
+        mapImages = await generateMapImagesForPoint(lat, lng, 'groupride');
+      }
+      trip.mapImageLightUrl = mapImages.mapImageLightUrl;
+      trip.mapImageDarkUrl = mapImages.mapImageDarkUrl;
     }
     
     // Updatable fields
@@ -418,6 +468,9 @@ router.delete('/:id', async (req, res) => {
         error: 'Group ride not found, not authorized, or already started' 
       });
     }
+    
+    // Delete map images from Firebase Storage
+    deleteMapImages(result.mapImageLightUrl, result.mapImageDarkUrl).catch(() => {});
     
     res.json({ message: 'Group ride deleted' });
   } catch (error) {

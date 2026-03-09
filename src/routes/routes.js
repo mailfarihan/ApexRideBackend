@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const Route = require('../models/Route');
+const Ride = require('../models/Ride');
+const { generateMapImages, copyMapImages, deleteMapImages } = require('../services/mapImage');
 
 // GET /api/routes - Get public routes with optional geo filter
 router.get('/', async (req, res) => {
@@ -137,6 +139,19 @@ router.post('/', async (req, res) => {
       scenicScore, twistyScore, tags, sourceRideId
     } = req.body;
     
+    // Try to copy map images from the source ride, otherwise generate new ones
+    let mapImages = { mapImageLightUrl: '', mapImageDarkUrl: '' };
+    if (sourceRideId) {
+      const sourceRide = await Ride.findById(sourceRideId).lean();
+      if (sourceRide?.mapImageLightUrl) {
+        mapImages = await copyMapImages(sourceRide.mapImageLightUrl, sourceRide.mapImageDarkUrl, 'route');
+      }
+    }
+    // If no images from source ride, generate from polyline
+    if (!mapImages.mapImageLightUrl && encodedPolyline) {
+      mapImages = await generateMapImages(encodedPolyline, 'route');
+    }
+    
     const route = new Route({
       creatorId: req.user.uid,
       creatorName: req.user.name,
@@ -161,7 +176,9 @@ router.post('/', async (req, res) => {
       elevationGain,
       scenicScore,
       twistyScore,
-      tags
+      tags,
+      mapImageLightUrl: mapImages.mapImageLightUrl,
+      mapImageDarkUrl: mapImages.mapImageDarkUrl
     });
     
     await route.save();
@@ -237,6 +254,9 @@ router.delete('/:id', async (req, res) => {
     if (route.creatorId !== req.user.uid) {
       return res.status(403).json({ error: 'Not authorized' });
     }
+    
+    // Delete map images from Firebase Storage
+    deleteMapImages(route.mapImageLightUrl, route.mapImageDarkUrl).catch(() => {});
     
     await route.deleteOne();
     res.json({ message: 'Route deleted' });

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Ride = require('../models/Ride');
+const { generateMapImages, deleteMapImages } = require('../services/mapImage');
 
 // GET /api/rides - Get user's synced rides
 router.get('/', async (req, res) => {
@@ -31,6 +32,9 @@ router.get('/', async (req, res) => {
         // Legacy fields (only include if no new format)
         routePointsJson: hasNewFormat ? undefined : (ride.routePointsJson ?? '[]'),
         eventsJson: hasNewFormat ? undefined : (ride.eventsJson ?? '[]'),
+        // Map images
+        mapImageLightUrl: ride.mapImageLightUrl ?? '',
+        mapImageDarkUrl: ride.mapImageDarkUrl ?? '',
         // Other fields
         scenicScore: ride.scenicScore ?? 0,
         twistyScore: ride.twistyScore ?? 0,
@@ -106,6 +110,7 @@ router.post('/sync', async (req, res) => {
         }
         
         // Upsert: update if exists, insert if not
+        const existingRide = await Ride.findOne({ userId: req.user.uid, localId: ride.localId }).lean();
         const result = await Ride.findOneAndUpdate(
           { 
             userId: req.user.uid, 
@@ -114,6 +119,15 @@ router.post('/sync', async (req, res) => {
           updateDoc,
           { upsert: true, new: true }
         );
+        
+        // Generate map images in background if new format and no images yet
+        if (hasNewFormat && !existingRide?.mapImageLightUrl) {
+          generateMapImages(ride.encodedPolyline, 'ride').then(({ mapImageLightUrl, mapImageDarkUrl }) => {
+            if (mapImageLightUrl) {
+              Ride.updateOne({ _id: result._id }, { mapImageLightUrl, mapImageDarkUrl }).catch(() => {});
+            }
+          }).catch(() => {});
+        }
         
         results.push({
           localId: ride.localId,
@@ -194,9 +208,23 @@ router.post('/', async (req, res) => {
       { upsert: true, new: true }
     );
     
+    // Generate map images if polyline available
+    let mapImageLightUrl = '';
+    let mapImageDarkUrl = '';
+    if (hasNewFormat) {
+      const images = await generateMapImages(ride.encodedPolyline, 'ride');
+      mapImageLightUrl = images.mapImageLightUrl;
+      mapImageDarkUrl = images.mapImageDarkUrl;
+      if (mapImageLightUrl) {
+        await Ride.updateOne({ _id: result._id }, { mapImageLightUrl, mapImageDarkUrl });
+      }
+    }
+    
     res.status(201).json({ 
       id: result._id.toString(),
       localId: ride.localId,
+      mapImageLightUrl,
+      mapImageDarkUrl,
       message: 'Ride synced' 
     });
   } catch (error) {
@@ -216,6 +244,9 @@ router.delete('/:localId', async (req, res) => {
     if (!result) {
       return res.status(404).json({ error: 'Ride not found' });
     }
+    
+    // Delete map images from Firebase Storage
+    deleteMapImages(result.mapImageLightUrl, result.mapImageDarkUrl).catch(() => {});
     
     res.json({ message: 'Ride deleted from cloud' });
   } catch (error) {

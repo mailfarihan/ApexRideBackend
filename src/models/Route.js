@@ -38,6 +38,10 @@ const routeSchema = new mongoose.Schema({
   ratingCount: { type: Number, default: 0 },
   ratingAvg: { type: Number, default: 0 },
   
+  // Map preview images (generated via Google Static Maps API)
+  mapImageLightUrl: { type: String, default: '' },
+  mapImageDarkUrl: { type: String, default: '' },
+  
   // Metadata
   tags: [String],
   isPublic: { type: Boolean, default: true }

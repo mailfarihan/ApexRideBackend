@@ -52,6 +52,10 @@ const groupRideSchema = new mongoose.Schema({
     default: 'upcoming'
   },
   
+  // Map preview images (generated via Google Static Maps API)
+  mapImageLightUrl: { type: String, default: '' },
+  mapImageDarkUrl: { type: String, default: '' },
+  
   // Stats (populated after completion)
   actualStartTime: { type: Number },
   actualEndTime: { type: Number },
