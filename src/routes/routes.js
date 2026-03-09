@@ -154,7 +154,7 @@ router.post('/', async (req, res) => {
     // If no images from source ride, generate from polyline
     if (!mapImages.mapImageLightUrl && encodedPolyline) {
       try {
-        mapImages = await generateMapImages(encodedPolyline, 'route');
+        mapImages = await generateMapImages(encodedPolyline, 'route', req.body.mapStyle || {});
       } catch (e) {
         console.warn('Could not generate map images:', e.message);
       }

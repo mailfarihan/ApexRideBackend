@@ -150,7 +150,7 @@ router.post('/', async (req, res) => {
       if (linkedRoute?.mapImageLightUrl) {
         mapImages = await copyMapImages(linkedRoute.mapImageLightUrl, linkedRoute.mapImageDarkUrl, 'groupride');
       } else if (linkedRoute?.encodedPolyline) {
-        mapImages = await generateMapImages(linkedRoute.encodedPolyline, 'groupride');
+        mapImages = await generateMapImages(linkedRoute.encodedPolyline, 'groupride', req.body.mapStyle || {});
       }
     }
     // If no route images, generate from meetup point
@@ -227,7 +227,7 @@ router.put('/:id', async (req, res) => {
         if (linkedRoute?.mapImageLightUrl) {
           mapImages = await copyMapImages(linkedRoute.mapImageLightUrl, linkedRoute.mapImageDarkUrl, 'groupride');
         } else if (linkedRoute?.encodedPolyline) {
-          mapImages = await generateMapImages(linkedRoute.encodedPolyline, 'groupride');
+          mapImages = await generateMapImages(linkedRoute.encodedPolyline, 'groupride', req.body.mapStyle || {});
         }
       }
       if (!mapImages.mapImageLightUrl) {

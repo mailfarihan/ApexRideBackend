@@ -122,7 +122,7 @@ router.post('/sync', async (req, res) => {
         
         // Generate map images in background if new format and no images yet
         if (hasNewFormat && !existingRide?.mapImageLightUrl) {
-          generateMapImages(ride.encodedPolyline, 'ride').then(({ mapImageLightUrl, mapImageDarkUrl }) => {
+          generateMapImages(ride.encodedPolyline, 'ride', ride.mapStyle || {}).then(({ mapImageLightUrl, mapImageDarkUrl }) => {
             if (mapImageLightUrl) {
               Ride.updateOne({ _id: result._id }, { mapImageLightUrl, mapImageDarkUrl }).catch(() => {});
             }
@@ -212,7 +212,7 @@ router.post('/', async (req, res) => {
     let mapImageLightUrl = '';
     let mapImageDarkUrl = '';
     if (hasNewFormat) {
-      const images = await generateMapImages(ride.encodedPolyline, 'ride');
+      const images = await generateMapImages(ride.encodedPolyline, 'ride', ride.mapStyle || {});
       mapImageLightUrl = images.mapImageLightUrl;
       mapImageDarkUrl = images.mapImageDarkUrl;
       if (mapImageLightUrl) {

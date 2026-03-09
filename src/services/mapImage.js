@@ -32,10 +32,12 @@ const DARK_STYLE = [
 /**
  * Build Google Static Maps URL from an encoded polyline
  */
-function buildStaticMapUrl(encodedPolyline, isDark, apiKey) {
-  const size = '600x300';
-  const pathColor = isDark ? 'FF9800FF' : 'FB8C00FF';
-  const pathWeight = '5';
+function buildStaticMapUrl(encodedPolyline, isDark, apiKey, style = {}) {
+  const size = style.size || '600x300';
+  const pathColor = isDark
+    ? (style.darkColor || 'FF9800FF')
+    : (style.lightColor || 'FB8C00FF');
+  const pathWeight = style.weight || '5';
 
   let url = `${STATIC_MAPS_BASE}?size=${size}&scale=2&maptype=roadmap`;
   url += `&path=color:0x${pathColor}|weight:${pathWeight}|enc:${encodedPolyline}`;
@@ -167,9 +169,12 @@ function generateFileName(prefix) {
 
 /**
  * Generate light and dark map images from encoded polyline, upload to Firebase
+ * @param {string} encodedPolyline
+ * @param {string} prefix
+ * @param {object} style - Optional { lightColor, darkColor, weight, size }
  * Returns { mapImageLightUrl, mapImageDarkUrl }
  */
-async function generateMapImages(encodedPolyline, prefix = 'ride') {
+async function generateMapImages(encodedPolyline, prefix = 'ride', style = {}) {
   const apiKey = process.env.GOOGLE_STATIC_MAPS_API_KEY;
   if (!apiKey) {
     console.warn('⚠️ GOOGLE_STATIC_MAPS_API_KEY not set, skipping map image generation');
@@ -185,8 +190,8 @@ async function generateMapImages(encodedPolyline, prefix = 'ride') {
 
     // Generate both light and dark in parallel
     const [lightBuffer, darkBuffer] = await Promise.all([
-      downloadImage(buildStaticMapUrl(encodedPolyline, false, apiKey)),
-      downloadImage(buildStaticMapUrl(encodedPolyline, true, apiKey))
+      downloadImage(buildStaticMapUrl(encodedPolyline, false, apiKey, style)),
+      downloadImage(buildStaticMapUrl(encodedPolyline, true, apiKey, style))
     ]);
 
     // Upload both in parallel
