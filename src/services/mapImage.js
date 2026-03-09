@@ -34,8 +34,8 @@ const DARK_STYLE = [
  */
 function buildStaticMapUrl(encodedPolyline, isDark, apiKey) {
   const size = '600x300';
-  const pathColor = isDark ? '0xFF9800FF' : '0xFF6200EEFF';
-  const pathWeight = '4';
+  const pathColor = isDark ? 'FF9800FF' : 'FB8C00FF';
+  const pathWeight = '5';
 
   let url = `${STATIC_MAPS_BASE}?size=${size}&scale=2&maptype=roadmap`;
   url += `&path=color:0x${pathColor}|weight:${pathWeight}|enc:${encodedPolyline}`;
