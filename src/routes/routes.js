@@ -141,15 +141,23 @@ router.post('/', async (req, res) => {
     
     // Try to copy map images from the source ride, otherwise generate new ones
     let mapImages = { mapImageLightUrl: '', mapImageDarkUrl: '' };
-    if (sourceRideId) {
-      const sourceRide = await Ride.findById(sourceRideId).lean();
-      if (sourceRide?.mapImageLightUrl) {
-        mapImages = await copyMapImages(sourceRide.mapImageLightUrl, sourceRide.mapImageDarkUrl, 'route');
+    if (sourceRideId && sourceRideId.match(/^[0-9a-fA-F]{24}$/)) {
+      try {
+        const sourceRide = await Ride.findById(sourceRideId).lean();
+        if (sourceRide?.mapImageLightUrl) {
+          mapImages = await copyMapImages(sourceRide.mapImageLightUrl, sourceRide.mapImageDarkUrl, 'route');
+        }
+      } catch (e) {
+        console.warn('Could not copy map images from source ride:', e.message);
       }
     }
     // If no images from source ride, generate from polyline
     if (!mapImages.mapImageLightUrl && encodedPolyline) {
-      mapImages = await generateMapImages(encodedPolyline, 'route');
+      try {
+        mapImages = await generateMapImages(encodedPolyline, 'route');
+      } catch (e) {
+        console.warn('Could not generate map images:', e.message);
+      }
     }
     
     const route = new Route({
