@@ -20,7 +20,7 @@ const routeSchema = new mongoose.Schema({
   },
   
   // Encoded polyline for efficient storage
-  encodedPolyline: { type: String, required: true },
+  encodedPolyline: { type: String, default: '' },
   
   // Stats
   distance: { type: Number, required: true }, // meters
