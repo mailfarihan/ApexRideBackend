@@ -14,10 +14,12 @@ const routeSchema = new mongoose.Schema({
     type: { type: String, enum: ['Point'], default: 'Point' },
     coordinates: { type: [Number], required: true } // [lng, lat]
   },
+  startAddress: { type: String, default: '' },
   endLocation: {
     type: { type: String, enum: ['Point'], default: 'Point' },
     coordinates: { type: [Number] } // [lng, lat]
   },
+  endAddress: { type: String, default: '' },
   
   // Encoded polyline for efficient storage
   encodedPolyline: { type: String, default: '' },

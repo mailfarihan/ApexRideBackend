@@ -130,20 +130,26 @@ router.post('/', async (req, res) => {
   try {
     const { 
       title, description, dateTime, 
-      meetupLat, meetupLng, meetupAddress,
+      startLat, startLng, startAddress,
+      endLat, endLng, endAddress,
       estimatedDuration, estimatedDistance, difficulty,
       linkedRouteId, maxRiders, isPublic,
       ridingStyles, extraInfo
     } = req.body;
     
-    if (!title || !dateTime || !meetupLat || !meetupLng) {
+    if (!title || !dateTime || !startLat || !startLng) {
       return res.status(400).json({ 
-        error: 'title, dateTime, meetupLat, and meetupLng are required' 
+        error: 'title, dateTime, startLat, and startLng are required' 
       });
     }
     
     // Generate map images based on location type
     let mapImages = { mapImageLightUrl: '', mapImageDarkUrl: '' };
+    let resolvedStartAddress = startAddress || '';
+    let resolvedEndLat = endLat;
+    let resolvedEndLng = endLng;
+    let resolvedEndAddress = endAddress || '';
+    
     if (linkedRouteId) {
       // Copy images from the linked route
       const linkedRoute = await Route.findById(linkedRouteId).lean();
@@ -152,10 +158,22 @@ router.post('/', async (req, res) => {
       } else if (linkedRoute?.encodedPolyline) {
         mapImages = await generateMapImages(linkedRoute.encodedPolyline, 'groupride', req.body.mapStyle || {});
       }
+      // Inherit addresses from linked route if not provided
+      if (!resolvedStartAddress && linkedRoute?.startAddress) {
+        resolvedStartAddress = linkedRoute.startAddress;
+      }
+      // Inherit end location from linked route if not provided
+      if (!resolvedEndLat && !resolvedEndLng && linkedRoute?.endLocation?.coordinates) {
+        resolvedEndLat = linkedRoute.endLocation.coordinates[1];
+        resolvedEndLng = linkedRoute.endLocation.coordinates[0];
+      }
+      if (!resolvedEndAddress && linkedRoute?.endAddress) {
+        resolvedEndAddress = linkedRoute.endAddress;
+      }
     }
-    // If no route images, generate from meetup point
+    // If no route images, generate from start point
     if (!mapImages.mapImageLightUrl) {
-      mapImages = await generateMapImagesForPoint(meetupLat, meetupLng, 'groupride');
+      mapImages = await generateMapImagesForPoint(startLat, startLng, 'groupride');
     }
     
     const trip = new Trip({
@@ -165,11 +183,16 @@ router.post('/', async (req, res) => {
       title,
       description: description || '',
       dateTime,
-      meetupLocation: {
+      startLocation: {
         type: 'Point',
-        coordinates: [meetupLng, meetupLat]
+        coordinates: [startLng, startLat]
       },
-      meetupAddress: meetupAddress || '',
+      startAddress: resolvedStartAddress,
+      endLocation: resolvedEndLat && resolvedEndLng ? {
+        type: 'Point',
+        coordinates: [resolvedEndLng, resolvedEndLat]
+      } : undefined,
+      endAddress: resolvedEndAddress,
       estimatedDuration: estimatedDuration || 0,
       estimatedDistance: estimatedDistance || 0,
       difficulty: difficulty || 'moderate',
@@ -211,9 +234,9 @@ router.put('/:id', async (req, res) => {
     
     // Check if linkedRouteId or location changed — regenerate images
     const routeChanged = req.body.linkedRouteId !== undefined && req.body.linkedRouteId !== (trip.linkedRouteId?.toString() || null);
-    const locationChanged = req.body.meetupLat && req.body.meetupLng && 
-      (req.body.meetupLat !== trip.meetupLocation.coordinates[1] || 
-       req.body.meetupLng !== trip.meetupLocation.coordinates[0]);
+    const locationChanged = req.body.startLat && req.body.startLng && 
+      (req.body.startLat !== trip.startLocation.coordinates[1] || 
+       req.body.startLng !== trip.startLocation.coordinates[0]);
     
     if (routeChanged || locationChanged) {
       // Delete old images
@@ -229,10 +252,20 @@ router.put('/:id', async (req, res) => {
         } else if (linkedRoute?.encodedPolyline) {
           mapImages = await generateMapImages(linkedRoute.encodedPolyline, 'groupride', req.body.mapStyle || {});
         }
+        // Inherit end location from linked route if not provided
+        if (!req.body.endLat && !req.body.endLng && linkedRoute?.endLocation?.coordinates) {
+          trip.endLocation = linkedRoute.endLocation;
+        }
+        if (!req.body.endAddress && linkedRoute?.endAddress) {
+          trip.endAddress = linkedRoute.endAddress;
+        }
+        if (!req.body.startAddress && linkedRoute?.startAddress) {
+          trip.startAddress = linkedRoute.startAddress;
+        }
       }
       if (!mapImages.mapImageLightUrl) {
-        const lat = req.body.meetupLat || trip.meetupLocation.coordinates[1];
-        const lng = req.body.meetupLng || trip.meetupLocation.coordinates[0];
+        const lat = req.body.startLat || trip.startLocation.coordinates[1];
+        const lng = req.body.startLng || trip.startLocation.coordinates[0];
         mapImages = await generateMapImagesForPoint(lat, lng, 'groupride');
       }
       trip.mapImageLightUrl = mapImages.mapImageLightUrl;
@@ -241,7 +274,7 @@ router.put('/:id', async (req, res) => {
     
     // Updatable fields
     const updateFields = [
-      'title', 'description', 'dateTime', 'meetupAddress',
+      'title', 'description', 'dateTime', 'startAddress', 'endAddress',
       'estimatedDuration', 'estimatedDistance', 'difficulty',
       'linkedRouteId', 'ridingStyles', 'extraInfo',
       'maxRiders', 'isPublic'
@@ -253,11 +286,19 @@ router.put('/:id', async (req, res) => {
       }
     });
     
-    // Update location if provided
-    if (req.body.meetupLat && req.body.meetupLng) {
-      trip.meetupLocation = {
+    // Update start location if provided
+    if (req.body.startLat && req.body.startLng) {
+      trip.startLocation = {
         type: 'Point',
-        coordinates: [req.body.meetupLng, req.body.meetupLat]
+        coordinates: [req.body.startLng, req.body.startLat]
+      };
+    }
+    
+    // Update end location if provided
+    if (req.body.endLat && req.body.endLng) {
+      trip.endLocation = {
+        type: 'Point',
+        coordinates: [req.body.endLng, req.body.endLat]
       };
     }
     

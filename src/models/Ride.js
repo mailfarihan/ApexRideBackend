@@ -67,18 +67,20 @@ const rideSchema = new mongoose.Schema({
     speed: [Number],      // km/h
     gForce: [Number],     // G
     leanAngle: [Number],  // degrees (negative=left, positive=right)
-    timestamp: [Number]   // Relative ms from ride start
+    timestamp: [Number]   // Absolute unix ms
   },
   
-  // Ride events with location
+  // Ride events with location and telemetry snapshot
   events: [{
     type: { type: String },  // RAPID_ACCELERATION, HARD_BRAKING, EXTREME_LEAN, etc.
     latitude: Number,
     longitude: Number,
-    value: Number,
+    value: Number,           // Primary trigger value
     severity: String,        // MODERATE, HIGH, EXTREME
-    speedAtEvent: Number,
-    timestamp: Number
+    speed: Number,           // km/h at event
+    leanAngle: Number,       // degrees at event
+    gForce: Number,          // G at event
+    timestamp: Number        // Absolute unix ms
   }],
   
   // ==================== LEGACY (for backward compatibility) ====================
@@ -106,7 +108,15 @@ const rideSchema = new mongoose.Schema({
   startLocation: {
     type: { type: String, enum: ['Point'], default: 'Point' },
     coordinates: { type: [Number] } // [lng, lat]
-  }
+  },
+  startAddress: { type: String, default: '' },
+  
+  // End location
+  endLocation: {
+    type: { type: String, enum: ['Point'], default: 'Point' },
+    coordinates: { type: [Number] } // [lng, lat]
+  },
+  endAddress: { type: String, default: '' }
 }, {
   timestamps: true
 });

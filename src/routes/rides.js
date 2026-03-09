@@ -91,7 +91,13 @@ router.post('/sync', async (req, res) => {
           startLocation: ride.startLat && ride.startLng ? {
             type: 'Point',
             coordinates: [ride.startLng, ride.startLat]
-          } : undefined
+          } : undefined,
+          startAddress: ride.startAddress || '',
+          endLocation: ride.endLat && ride.endLng ? {
+            type: 'Point',
+            coordinates: [ride.endLng, ride.endLat]
+          } : undefined,
+          endAddress: ride.endAddress || ''
         };
         
         // Add new format fields if present
@@ -184,7 +190,13 @@ router.post('/', async (req, res) => {
       startLocation: ride.startLat && ride.startLng ? {
         type: 'Point',
         coordinates: [ride.startLng, ride.startLat]
-      } : undefined
+      } : undefined,
+      startAddress: ride.startAddress || '',
+      endLocation: ride.endLat && ride.endLng ? {
+        type: 'Point',
+        coordinates: [ride.endLng, ride.endLat]
+      } : undefined,
+      endAddress: ride.endAddress || ''
     };
     
     if (hasNewFormat) {

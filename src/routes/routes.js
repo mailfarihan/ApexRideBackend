@@ -135,6 +135,7 @@ router.post('/', async (req, res) => {
     const { 
       title, description, region, encodedPolyline,
       startLat, startLng, endLat, endLng,
+      startAddress, endAddress,
       distance, duration, avgSpeed, maxSpeed, elevationGain,
       scenicScore, twistyScore, tags, sourceRideId
     } = req.body;
@@ -173,10 +174,12 @@ router.post('/', async (req, res) => {
         type: 'Point',
         coordinates: [parseFloat(startLng), parseFloat(startLat)]
       },
+      startAddress: startAddress || '',
       endLocation: endLat && endLng ? {
         type: 'Point',
         coordinates: [parseFloat(endLng), parseFloat(endLat)]
       } : undefined,
+      endAddress: endAddress || '',
       distance,
       duration,
       avgSpeed,

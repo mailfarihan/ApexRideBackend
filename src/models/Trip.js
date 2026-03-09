@@ -15,12 +15,19 @@ const groupRideSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String, default: '' },
   
-  // Meeting point
-  meetupLocation: {
+  // Starting point
+  startLocation: {
     type: { type: String, enum: ['Point'], default: 'Point' },
     coordinates: { type: [Number], required: true } // [lng, lat]
   },
-  meetupAddress: { type: String, default: '' },
+  startAddress: { type: String, default: '' },
+  
+  // End point (optional - from linked route or user-provided)
+  endLocation: {
+    type: { type: String, enum: ['Point'], default: 'Point' },
+    coordinates: { type: [Number] } // [lng, lat]
+  },
+  endAddress: { type: String, default: '' },
   
   // Timing
   dateTime: { type: Number, required: true }, // Unix timestamp for meetup
@@ -65,7 +72,8 @@ const groupRideSchema = new mongoose.Schema({
 });
 
 // Indexes for discovery
-groupRideSchema.index({ meetupLocation: '2dsphere' });
+groupRideSchema.index({ startLocation: '2dsphere' });
+groupRideSchema.index({ endLocation: '2dsphere' });
 groupRideSchema.index({ dateTime: 1 });
 groupRideSchema.index({ status: 1, dateTime: 1 });
 groupRideSchema.index({ isPublic: 1, status: 1, dateTime: 1 });
