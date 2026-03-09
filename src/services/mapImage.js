@@ -113,17 +113,30 @@ async function uploadToFirebase(buffer, filePath) {
 /**
  * Delete a file from Firebase Storage by its public URL
  */
-async function deleteFromFirebase(publicUrl) {
-  if (!publicUrl) return;
+async function deleteFromFirebase(url) {
+  if (!url) return;
 
   try {
     const bucket = admin.storage().bucket();
-    // Extract file path from URL
     const bucketName = bucket.name;
-    const prefix = `https://storage.googleapis.com/${bucketName}/`;
-    if (!publicUrl.startsWith(prefix)) return;
-    
-    const filePath = decodeURIComponent(publicUrl.replace(prefix, ''));
+
+    let filePath = null;
+
+    // Public URL format: https://storage.googleapis.com/<bucket>/<path>
+    const publicPrefix = `https://storage.googleapis.com/${bucketName}/`;
+    if (url.startsWith(publicPrefix)) {
+      filePath = decodeURIComponent(url.replace(publicPrefix, ''));
+    }
+
+    // Client SDK URL format: https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<encoded_path>?...
+    if (!filePath) {
+      const match = url.match(/firebasestorage\.googleapis\.com\/v0\/b\/[^/]+\/o\/([^?]+)/);
+      if (match) {
+        filePath = decodeURIComponent(match[1]);
+      }
+    }
+
+    if (!filePath) return;
     await bucket.file(filePath).delete();
   } catch (err) {
     // Ignore 404 (already deleted)
@@ -275,5 +288,6 @@ module.exports = {
   generateMapImages,
   generateMapImagesForPoint,
   copyMapImages,
-  deleteMapImages
+  deleteMapImages,
+  deleteFromFirebase
 };

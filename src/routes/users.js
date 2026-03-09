@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
+const admin = require('firebase-admin');
 const User = require('../models/User');
+const { deleteFromFirebase } = require('../services/mapImage');
 
 // GET /api/users/me - Get current user's profile
 router.get('/me', async (req, res) => {
@@ -9,10 +11,19 @@ router.get('/me', async (req, res) => {
     
     // Create user if doesn't exist
     if (!user) {
+      // Fetch Firebase Auth profile to get Google photo URL
+      let photoUrl = null;
+      try {
+        const firebaseUser = await admin.auth().getUser(req.user.uid);
+        photoUrl = firebaseUser.photoURL || null;
+      } catch (e) {
+        // ignore - photo is optional
+      }
       user = new User({
         firebaseUid: req.user.uid,
         displayName: req.user.name || 'Rider',
-        email: req.user.email
+        email: req.user.email,
+        photoUrl
       });
       await user.save();
     }
@@ -35,6 +46,15 @@ router.put('/me', async (req, res) => {
         updates[field] = req.body[field];
       }
     });
+
+    // If photoUrl is changing, delete the old one from Firebase Storage
+    if (updates.photoUrl !== undefined) {
+      const existingUser = await User.findOne({ firebaseUid: req.user.uid });
+      const oldPhotoUrl = existingUser?.photoUrl || null;
+      if (oldPhotoUrl && oldPhotoUrl !== updates.photoUrl) {
+        deleteFromFirebase(oldPhotoUrl).catch(() => {});
+      }
+    }
     
     const user = await User.findOneAndUpdate(
       { firebaseUid: req.user.uid },
@@ -54,13 +74,33 @@ router.put('/me/photo', async (req, res) => {
   try {
     const { photoUrl } = req.body;
     
-    if (!photoUrl) {
+    if (photoUrl === undefined) {
       return res.status(400).json({ error: 'photoUrl is required' });
+    }
+
+    // Get old photo URL to delete from Storage
+    const existingUser = await User.findOne({ firebaseUid: req.user.uid });
+    const oldPhotoUrl = existingUser?.photoUrl || null;
+
+    // If clearing custom photo, fall back to Google account photo
+    let newPhotoUrl = photoUrl || null;
+    if (!newPhotoUrl) {
+      try {
+        const firebaseUser = await admin.auth().getUser(req.user.uid);
+        newPhotoUrl = firebaseUser.photoURL || null;
+      } catch (e) {
+        // ignore - will just clear the photo
+      }
+    }
+
+    // Delete old profile image from Firebase Storage if it changed
+    if (oldPhotoUrl && oldPhotoUrl !== newPhotoUrl) {
+      deleteFromFirebase(oldPhotoUrl).catch(() => {});
     }
     
     const user = await User.findOneAndUpdate(
       { firebaseUid: req.user.uid },
-      { $set: { photoUrl } },
+      { $set: { photoUrl: newPhotoUrl } },
       { new: true, upsert: true }
     );
     
