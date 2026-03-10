@@ -13,6 +13,10 @@
  * Run with DRY_RUN=true to preview changes without writing.
  */
 
+// Fix Node.js DNS resolution issues (use Google Public DNS)
+const dns = require('dns');
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+
 const DRY_RUN = process.env.DRY_RUN === 'true';
 
 async function migrate(db) {
@@ -93,18 +97,17 @@ if (typeof db !== 'undefined') {
   // Running inside mongosh
   migrate(db).then(() => console.log('Done.'));
 } else {
-  // Running with Node.js
-  const { MongoClient } = require('mongodb');
+  // Running with Node.js (uses mongoose which is already a project dependency)
+  const mongoose = require('mongoose');
   const uri = process.argv[2] || process.env.MONGODB_URI;
   if (!uri) {
     console.error('Usage: node migrate-telemetry-events.js <MONGODB_URI>');
     console.error('  or set MONGODB_URI environment variable');
     process.exit(1);
   }
-  const client = new MongoClient(uri);
-  client.connect()
-    .then(() => migrate(client.db()))
-    .then(() => client.close())
+  mongoose.connect(uri)
+    .then(() => migrate(mongoose.connection.db))
+    .then(() => mongoose.disconnect())
     .then(() => console.log('Done.'))
     .catch(err => { console.error(err); process.exit(1); });
 }
