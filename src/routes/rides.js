@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Ride = require('../models/Ride');
+const Telemetry = require('../models/Telemetry');
 const { generateMapImages, deleteMapImages } = require('../services/mapImage');
 
 // GET /api/rides - Get user's synced rides
@@ -12,6 +13,7 @@ router.get('/', async (req, res) => {
     
     // Ensure all rides have default values for missing fields
     // Exclude legacy large fields if new format is available
+    // Telemetry is now in a separate collection — omit from list response
     const ridesWithDefaults = rides.map(ride => {
       const hasNewFormat = ride.encodedPolyline && ride.encodedPolyline.length > 0;
       return {
@@ -27,7 +29,7 @@ router.get('/', async (req, res) => {
         // New format fields
         encodedPolyline: ride.encodedPolyline ?? '',
         samples: ride.samples ?? [],
-        telemetry: ride.telemetry ?? { speed: [], gForce: [], leanAngle: [], timestamp: [] },
+        telemetry: undefined, // Lazy-loaded via /api/telemetry/:rideId
         events: ride.events ?? [],
         // Legacy fields (only include if no new format)
         routePointsJson: hasNewFormat ? undefined : (ride.routePointsJson ?? '[]'),
@@ -104,7 +106,6 @@ router.post('/sync', async (req, res) => {
         if (hasNewFormat) {
           updateDoc.encodedPolyline = ride.encodedPolyline;
           updateDoc.samples = ride.samples || [];
-          updateDoc.telemetry = ride.telemetry || {};
           updateDoc.events = ride.events || [];
           // Clear legacy fields when new format is used
           updateDoc.routePointsJson = '';
@@ -122,9 +123,31 @@ router.post('/sync', async (req, res) => {
             userId: req.user.uid, 
             localId: ride.localId 
           },
-          updateDoc,
+          {
+            $set: updateDoc,
+            // Remove legacy telemetry from Ride document — now stored in Telemetry collection
+            ...(hasNewFormat ? { $unset: { telemetry: 1 } } : {})
+          },
           { upsert: true, new: true }
         );
+
+        // Write telemetry to separate collection (fire-and-forget for speed)
+        if (hasNewFormat && ride.telemetry) {
+          Telemetry.findOneAndUpdate(
+            { rideId: result._id },
+            {
+              $set: {
+                userId: req.user.uid,
+                speed: ride.telemetry.speed || [],
+                gForce: ride.telemetry.gForce || [],
+                leanAngle: ride.telemetry.leanAngle || [],
+                timestamp: ride.telemetry.timestamp || [],
+                cumDistanceM: ride.telemetry.cumDistanceM || []
+              }
+            },
+            { upsert: true }
+          ).catch(err => console.error('Telemetry upsert error:', err.message));
+        }
         
                 // Generate map images synchronously so URLs are returned in the sync response
         let mapImageLightUrl = existingRide?.mapImageLightUrl || '';
@@ -211,7 +234,6 @@ router.post('/', async (req, res) => {
     if (hasNewFormat) {
       updateDoc.encodedPolyline = ride.encodedPolyline;
       updateDoc.samples = ride.samples || [];
-      updateDoc.telemetry = ride.telemetry || {};
       updateDoc.events = ride.events || [];
       updateDoc.routePointsJson = '';
       updateDoc.eventsJson = '[]';
@@ -225,9 +247,30 @@ router.post('/', async (req, res) => {
         userId: req.user.uid, 
         localId: ride.localId 
       },
-      updateDoc,
+      {
+        $set: updateDoc,
+        ...(hasNewFormat ? { $unset: { telemetry: 1 } } : {})
+      },
       { upsert: true, new: true }
     );
+
+    // Write telemetry to separate collection
+    if (hasNewFormat && ride.telemetry) {
+      await Telemetry.findOneAndUpdate(
+        { rideId: result._id },
+        {
+          $set: {
+            userId: req.user.uid,
+            speed: ride.telemetry.speed || [],
+            gForce: ride.telemetry.gForce || [],
+            leanAngle: ride.telemetry.leanAngle || [],
+            timestamp: ride.telemetry.timestamp || [],
+            cumDistanceM: ride.telemetry.cumDistanceM || []
+          }
+        },
+        { upsert: true }
+      );
+    }
     
     // Generate map images if polyline available
     let mapImageLightUrl = '';
@@ -266,6 +309,8 @@ router.delete('/:localId', async (req, res) => {
       return res.status(404).json({ error: 'Ride not found' });
     }
     
+    // Delete telemetry from separate collection
+    Telemetry.deleteMany({ rideId: result._id }).catch(() => {});
     // Delete map images from Firebase Storage
     deleteMapImages(result.mapImageLightUrl, result.mapImageDarkUrl).catch(() => {});
     

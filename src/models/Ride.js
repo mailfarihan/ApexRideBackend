@@ -63,12 +63,14 @@ const rideSchema = new mongoose.Schema({
   }],
   
   // Sampled telemetry data for graphs (parallel arrays)
+  // DEPRECATED: New rides store telemetry in the separate Telemetry collection.
+  // Kept for backward compatibility with old documents; not populated on new writes.
   telemetry: {
-    speed: [Number],          // km/h
-    gForce: [Number],         // G
-    leanAngle: [Number],      // degrees (negative=left, positive=right)
-    timestamp: [Number],      // Absolute unix ms
-    cumDistanceM: [Number]    // Cumulative GPS distance in metres
+    speed: [Number],
+    gForce: [Number],
+    leanAngle: [Number],
+    timestamp: [Number],
+    cumDistanceM: [Number]
   },
   
   // Ride events with location and telemetry snapshot
