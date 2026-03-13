@@ -62,6 +62,7 @@ router.get('/discover', async (req, res) => {
             distanceField: 'distanceMeters',
             maxDistance: parseFloat(radiusKm) * 1000,
             spherical: true,
+            key: 'startLocation',
             query: query
           }
         },
