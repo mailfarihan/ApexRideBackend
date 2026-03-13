@@ -73,10 +73,19 @@ const groupRideSchema = new mongoose.Schema({
 
 // Indexes for discovery
 groupRideSchema.index({ startLocation: '2dsphere' });
-groupRideSchema.index({ endLocation: '2dsphere' });
+groupRideSchema.index({ endLocation: '2dsphere' }, { sparse: true });
 groupRideSchema.index({ dateTime: 1 });
 groupRideSchema.index({ status: 1, dateTime: 1 });
 groupRideSchema.index({ isPublic: 1, status: 1, dateTime: 1 });
+
+// Strip endLocation if it has invalid/empty coordinates (Mongoose may auto-init it with defaults)
+groupRideSchema.pre('save', function(next) {
+  if (this.endLocation &&
+      (!this.endLocation.coordinates || this.endLocation.coordinates.length < 2)) {
+    this.endLocation = undefined;
+  }
+  next();
+});
 
 // Keep the model name as 'Trip' for backwards compatibility with existing data
 module.exports = mongoose.model('Trip', groupRideSchema);
