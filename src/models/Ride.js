@@ -64,10 +64,11 @@ const rideSchema = new mongoose.Schema({
   
   // Sampled telemetry data for graphs (parallel arrays)
   telemetry: {
-    speed: [Number],      // km/h
-    gForce: [Number],     // G
-    leanAngle: [Number],  // degrees (negative=left, positive=right)
-    timestamp: [Number]   // Absolute unix ms
+    speed: [Number],          // km/h
+    gForce: [Number],         // G
+    leanAngle: [Number],      // degrees (negative=left, positive=right)
+    timestamp: [Number],      // Absolute unix ms
+    cumDistanceM: [Number]    // Cumulative GPS distance in metres
   },
   
   // Ride events with location and telemetry snapshot
