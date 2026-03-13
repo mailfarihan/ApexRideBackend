@@ -126,19 +126,28 @@ router.post('/sync', async (req, res) => {
           { upsert: true, new: true }
         );
         
-        // Generate map images in background if new format and no images yet
+                // Generate map images synchronously so URLs are returned in the sync response
+        let mapImageLightUrl = existingRide?.mapImageLightUrl || '';
+        let mapImageDarkUrl = existingRide?.mapImageDarkUrl || '';
         if (hasNewFormat && !existingRide?.mapImageLightUrl) {
-          generateMapImages(ride.encodedPolyline, 'ride', ride.mapStyle || {}).then(({ mapImageLightUrl, mapImageDarkUrl }) => {
+          try {
+            const urls = await generateMapImages(ride.encodedPolyline, 'ride', ride.mapStyle || {});
+            mapImageLightUrl = urls.mapImageLightUrl || '';
+            mapImageDarkUrl = urls.mapImageDarkUrl || '';
             if (mapImageLightUrl) {
-              Ride.updateOne({ _id: result._id }, { mapImageLightUrl, mapImageDarkUrl }).catch(() => {});
+              await Ride.updateOne({ _id: result._id }, { mapImageLightUrl, mapImageDarkUrl });
             }
-          }).catch(() => {});
+          } catch (imgErr) {
+            console.error('Map image generation failed:', imgErr.message);
+          }
         }
-        
+
         results.push({
           localId: ride.localId,
           mongoId: result._id.toString(),
-          status: 'synced'
+          status: 'synced',
+          mapImageLightUrl,
+          mapImageDarkUrl
         });
       } catch (err) {
         results.push({
