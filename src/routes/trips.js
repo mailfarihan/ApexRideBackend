@@ -501,12 +501,12 @@ router.delete('/:id', async (req, res) => {
     const result = await Trip.findOneAndDelete({
       _id: req.params.id,
       creatorId: req.user.uid,
-      status: 'upcoming' // Can only delete upcoming rides
+      status: { $in: ['upcoming', 'completed', 'cancelled'] }
     });
     
     if (!result) {
       return res.status(404).json({ 
-        error: 'Group ride not found, not authorized, or already started' 
+        error: 'Group ride not found, not authorized, or ride is currently ongoing' 
       });
     }
     
