@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const Trip = require('../models/Trip');
+const Ride = require('../models/Ride');
+const Telemetry = require('../models/Telemetry');
 const Route = require('../models/Route');
+const User = require('../models/User');
 const { generateMapImages, generateMapImagesForPoint, copyMapImages, deleteMapImages } = require('../services/mapImage');
 
 // GET /api/trips - Get user's group rides (created + joined)
@@ -489,10 +492,114 @@ router.post('/:id/link-ride', async (req, res) => {
       await trip.save();
     }
     
+    // Also update the ride document with groupRideId
+    await Ride.findByIdAndUpdate(rideId, { groupRideId: trip._id });
+    
+    // Also update telemetry with groupRideId
+    await Telemetry.findOneAndUpdate(
+      { rideId: rideId },
+      { groupRideId: trip._id }
+    );
+    
     res.json({ message: 'Ride linked to group ride' });
   } catch (error) {
     console.error('Link ride error:', error);
     res.status(500).json({ error: 'Failed to link ride' });
+  }
+});
+
+// GET /api/trips/:id/detail - Pipeline API: group ride detail with all member rides & telemetry
+router.get('/:id/detail', async (req, res) => {
+  try {
+    const trip = await Trip.findById(req.params.id).lean();
+    
+    if (!trip) {
+      return res.status(404).json({ error: 'Group ride not found' });
+    }
+    
+    // Check access: must be participant or public
+    if (!trip.isPublic && 
+        trip.creatorId !== req.user.uid && 
+        !trip.attendeeIds.includes(req.user.uid)) {
+      return res.status(403).json({ error: 'This group ride is private' });
+    }
+    
+    // Fetch all member rides linked to this group ride
+    // Strategy: use completedRideIds from trip + any rides with groupRideId set
+    const rideQuery = {
+      $or: [
+        { _id: { $in: trip.completedRideIds || [] } },
+        { groupRideId: trip._id }
+      ]
+    };
+    
+    const rides = await Ride.find(rideQuery)
+      .select('userId distance duration avgSpeed maxSpeed maxLeanAngle maxGForce startTime endTime encodedPolyline mapImageLightUrl mapImageDarkUrl startAddress endAddress')
+      .lean();
+    
+    // Fetch all telemetry for these rides in one query
+    const rideIds = rides.map(r => r._id);
+    const telemetries = await Telemetry.find({
+      $or: [
+        { rideId: { $in: rideIds } },
+        { groupRideId: trip._id }
+      ]
+    }).lean();
+    
+    // Look up participant display names
+    const allUserIds = [...new Set([
+      ...(trip.attendeeIds || []),
+      ...rides.map(r => r.userId)
+    ])];
+    const users = await User.find(
+      { firebaseUid: { $in: allUserIds } },
+      { firebaseUid: 1, displayName: 1 }
+    ).lean();
+    const userNameMap = {};
+    users.forEach(u => { userNameMap[u.firebaseUid] = u.displayName || 'Rider'; });
+
+    // Build response
+    res.json({
+      ...trip,
+      attendeeCount: trip.attendeeIds?.length || 0,
+      isCreator: trip.creatorId === req.user.uid,
+      isJoined: trip.attendeeIds?.includes(req.user.uid) || false,
+      participants: allUserIds.map(uid => ({
+        userId: uid,
+        displayName: userNameMap[uid] || 'Rider'
+      })),
+      rides: rides.map(r => ({
+        _id: r._id,
+        userId: r.userId,
+        displayName: userNameMap[r.userId] || 'Rider',
+        distance: r.distance || 0,
+        duration: r.duration || 0,
+        avgSpeed: r.avgSpeed || 0,
+        maxSpeed: r.maxSpeed || 0,
+        maxLeanAngle: r.maxLeanAngle || 0,
+        maxGForce: r.maxGForce || 0,
+        startTime: r.startTime,
+        endTime: r.endTime,
+        encodedPolyline: r.encodedPolyline || '',
+        mapImageLightUrl: r.mapImageLightUrl || '',
+        mapImageDarkUrl: r.mapImageDarkUrl || '',
+        startAddress: r.startAddress || '',
+        endAddress: r.endAddress || ''
+      })),
+      telemetry: telemetries.map(t => ({
+        userId: t.userId,
+        rideId: t.rideId,
+        displayName: userNameMap[t.userId] || 'Rider',
+        speed: t.speed,
+        gForce: t.gForce,
+        leanAngle: t.leanAngle,
+        timestamp: t.timestamp,
+        cumDistanceM: t.cumDistanceM
+      }))
+    });
+  } catch (error) {
+    console.error('Get group ride detail error:', error);
+    res.status(500).json({ error: 'Failed to get group ride detail' });
   }
 });
 

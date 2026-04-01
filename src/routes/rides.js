@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Ride = require('../models/Ride');
 const Telemetry = require('../models/Telemetry');
+const Trip = require('../models/Trip');
 const { generateMapImages, deleteMapImages } = require('../services/mapImage');
 
 // GET /api/rides - Get user's synced rides
@@ -102,6 +103,30 @@ router.post('/sync', async (req, res) => {
           endAddress: ride.endAddress || ''
         };
         
+        // Handle groupRideId — client may send it directly, or we auto-detect
+        if (ride.groupRideId) {
+          updateDoc.groupRideId = ride.groupRideId;
+        } else if (ride.startTime) {
+          // Smart auto-link: find ongoing/completed group rides where user is a participant
+          // and ride time overlaps with the group ride time window
+          try {
+            const matchingTrip = await Trip.findOne({
+              attendeeIds: req.user.uid,
+              status: { $in: ['ongoing', 'completed'] },
+              // Group ride started within 1 hour before or after the ride
+              $or: [
+                { actualStartTime: { $gte: ride.startTime - 3600000, $lte: ride.startTime + 3600000 } },
+                { dateTime: { $gte: ride.startTime - 3600000, $lte: ride.startTime + 3600000 } }
+              ]
+            }).lean();
+            if (matchingTrip) {
+              updateDoc.groupRideId = matchingTrip._id;
+            }
+          } catch (matchErr) {
+            console.error('Auto-link match error:', matchErr.message);
+          }
+        }
+        
         // Add new format fields if present
         if (hasNewFormat) {
           updateDoc.encodedPolyline = ride.encodedPolyline;
@@ -138,6 +163,7 @@ router.post('/sync', async (req, res) => {
             {
               $set: {
                 userId: req.user.uid,
+                groupRideId: updateDoc.groupRideId || null,
                 speed: ride.telemetry.speed || [],
                 gForce: ride.telemetry.gForce || [],
                 leanAngle: ride.telemetry.leanAngle || [],
@@ -147,6 +173,14 @@ router.post('/sync', async (req, res) => {
             },
             { upsert: true }
           ).catch(err => console.error('Telemetry upsert error:', err.message));
+        }
+        
+        // Auto-link ride to group ride if groupRideId is set
+        if (updateDoc.groupRideId) {
+          Trip.findByIdAndUpdate(
+            updateDoc.groupRideId,
+            { $addToSet: { completedRideIds: result._id } }
+          ).catch(err => console.error('Auto-link to group ride error:', err.message));
         }
         
                 // Generate map images synchronously so URLs are returned in the sync response

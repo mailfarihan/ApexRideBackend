@@ -119,7 +119,10 @@ const rideSchema = new mongoose.Schema({
     type: { type: String, enum: ['Point'], default: 'Point' },
     coordinates: { type: [Number] } // [lng, lat]
   },
-  endAddress: { type: String, default: '' }
+  endAddress: { type: String, default: '' },
+  
+  // Group ride linkage — ties this ride to a group ride
+  groupRideId: { type: mongoose.Schema.Types.ObjectId, ref: 'Trip', default: null }
 }, {
   timestamps: true
 });
@@ -127,5 +130,6 @@ const rideSchema = new mongoose.Schema({
 // Compound index for user + localId (for sync)
 rideSchema.index({ userId: 1, localId: 1 }, { unique: true });
 rideSchema.index({ userId: 1, startTime: -1 });
+rideSchema.index({ groupRideId: 1, userId: 1 });
 
 module.exports = mongoose.model('Ride', rideSchema);
