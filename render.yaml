@@ -17,3 +17,13 @@ services:
         sync: false
       - key: GOOGLE_STATIC_MAPS_API_KEY
         sync: false
+
+  - type: web
+    name: apexride-landing
+    env: static
+    staticPublishPath: ./landing
+    buildCommand: ""
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY

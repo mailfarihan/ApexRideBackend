@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ApexRide — Beta Testing</title>
+    <meta name="description" content="Join the ApexRide closed beta. Track your motorcycle rides, analyze telemetry, and ride together with friends.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #0a0a0f;
+            --surface: #13131a;
+            --surface-hover: #1a1a24;
+            --border: #23232f;
+            --text: #e8e8ed;
+            --text-muted: #8888a0;
+            --accent: #6c5ce7;
+            --accent-light: #a29bfe;
+            --accent-glow: rgba(108, 92, 231, 0.25);
+            --success: #00cec9;
+            --gradient: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+        }
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Nav */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 100;
+            background: rgba(10, 10, 15, 0.85);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+        }
+        .nav-inner {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .logo {
+            font-weight: 800;
+            font-size: 1.25rem;
+            letter-spacing: -0.5px;
+        }
+        .logo span { color: var(--accent-light); }
+        .nav-cta {
+            background: var(--gradient);
+            color: #fff;
+            padding: 0.5rem 1.25rem;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.875rem;
+            transition: opacity 0.2s;
+        }
+        .nav-cta:hover { opacity: 0.9; }
+
+        /* Hero */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 6rem 1.5rem 4rem;
+            position: relative;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -200px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .hero-content { position: relative; max-width: 700px; }
+        .badge {
+            display: inline-block;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--accent-light);
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 0.35rem 1rem;
+            border-radius: 100px;
+            margin-bottom: 1.5rem;
+            letter-spacing: 0.5px;
+        }
+        .hero h1 {
+            font-size: clamp(2.5rem, 6vw, 4rem);
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: -1.5px;
+            margin-bottom: 1.25rem;
+        }
+        .hero h1 .gradient-text {
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .hero p {
+            font-size: 1.15rem;
+            color: var(--text-muted);
+            max-width: 520px;
+            margin: 0 auto 2.5rem;
+        }
+        .hero-cta {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--gradient);
+            color: #fff;
+            padding: 0.9rem 2rem;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1.05rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 24px var(--accent-glow);
+        }
+        .hero-cta:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px var(--accent-glow);
+        }
+        .hero-cta svg { width: 20px; height: 20px; }
+
+        /* Sections shared */
+        section { padding: 5rem 1.5rem; }
+        .section-inner { max-width: 1100px; margin: 0 auto; }
+        .section-label {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--accent-light);
+            margin-bottom: 0.75rem;
+        }
+        .section-title {
+            font-size: clamp(1.75rem, 4vw, 2.5rem);
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 1rem;
+        }
+        .section-subtitle {
+            color: var(--text-muted);
+            font-size: 1.05rem;
+            max-width: 560px;
+        }
+
+        /* Features */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.25rem;
+            margin-top: 3rem;
+        }
+        .feature-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            transition: border-color 0.3s, background 0.3s;
+        }
+        .feature-card:hover {
+            border-color: var(--accent);
+            background: var(--surface-hover);
+        }
+        .feature-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: var(--accent-glow);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.25rem;
+            font-size: 1.5rem;
+        }
+        .feature-card h3 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        .feature-card p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        /* Steps */
+        #join { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1.5rem;
+            margin-top: 3rem;
+        }
+        .step {
+            position: relative;
+            padding: 2rem;
+            border-radius: 16px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+        }
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: var(--gradient);
+            color: #fff;
+            font-weight: 800;
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+        }
+        .step h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        .step p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+        .step-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            color: var(--accent-light);
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-decoration: none;
+            transition: gap 0.2s;
+        }
+        .step-link:hover { gap: 0.6rem; }
+        .step-link svg { width: 16px; height: 16px; }
+
+        /* CTA */
+        .cta-section { text-align: center; padding: 6rem 1.5rem; }
+        .cta-box {
+            max-width: 600px;
+            margin: 0 auto;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 3rem 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+        .cta-box::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at top center, var(--accent-glow) 0%, transparent 60%);
+            pointer-events: none;
+        }
+        .cta-box > * { position: relative; }
+        .cta-box h2 {
+            font-size: 1.75rem;
+            font-weight: 800;
+            margin-bottom: 0.75rem;
+        }
+        .cta-box p {
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+            font-size: 1rem;
+        }
+
+        /* Footer */
+        footer {
+            padding: 2rem 1.5rem;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--border);
+        }
+
+        /* Mobile */
+        @media (max-width: 640px) {
+            .features-grid, .steps { grid-template-columns: 1fr; }
+            section { padding: 3.5rem 1.25rem; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+    <div class="nav-inner">
+        <div class="logo">Apex<span>Ride</span></div>
+        <a href="#join" class="nav-cta">Join Beta</a>
+    </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+    <div class="hero-content">
+        <div class="badge">CLOSED BETA</div>
+        <h1>Your Rides.<br><span class="gradient-text">Smarter.</span></h1>
+        <p>ApexRide automatically detects your motorcycle rides, tracks telemetry in real-time, and lets you ride together with friends — all from your pocket.</p>
+        <a href="#join" class="hero-cta">
+            Become a Tester
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </a>
+    </div>
+</section>
+
+<!-- Features -->
+<section id="features">
+    <div class="section-inner">
+        <div class="section-label">Features</div>
+        <h2 class="section-title">Built for riders</h2>
+        <p class="section-subtitle">Every feature designed around the way you actually ride.</p>
+
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">&#x1F3CD;</div>
+                <h3>Auto Ride Detection</h3>
+                <p>Automatically detects when you start and stop riding — no need to open the app. Works even when your phone is in your pocket.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#x1F4CA;</div>
+                <h3>Live Telemetry</h3>
+                <p>Speed, lean angle, G-force, and route data recorded in real-time. Review detailed charts and stats after every ride.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#x1F465;</div>
+                <h3>Group Rides</h3>
+                <p>Create or join group rides with friends. See everyone's live position, compare telemetry, and scrub through the ride together.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#x1F5FA;</div>
+                <h3>Route Mapping</h3>
+                <p>Every ride mapped with scenic and twisty scores. Discover your best roads and share routes with the community.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#x26A1;</div>
+                <h3>Ride History</h3>
+                <p>All your rides stored locally and synced to the cloud. Browse past rides, compare stats, and track your improvement over time.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">&#x1F512;</div>
+                <h3>Privacy First</h3>
+                <p>Your data stays on your device by default. Cloud sync is optional and you control what gets shared with group ride members.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Join Steps -->
+<section id="join">
+    <div class="section-inner">
+        <div class="section-label">Get Started</div>
+        <h2 class="section-title">Join the closed beta</h2>
+        <p class="section-subtitle">Three quick steps to get ApexRide on your device.</p>
+
+        <div class="steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <h3>Join the Google Group</h3>
+                <p>You need to be a member of the ApexRide Testers group to access the closed testing track on Google Play.</p>
+                <a href="https://groups.google.com/g/apexridetester" target="_blank" rel="noopener" class="step-link">
+                    Join Group
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </a>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <h3>Accept the Invite</h3>
+                <p>Once you're in the group, click the Play Store testing link below. Accept the invite to become a tester.</p>
+                <a href="https://play.google.com/apps/testing/com.apexride" target="_blank" rel="noopener" class="step-link">
+                    Opt In on Play Store
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </a>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <h3>Download &amp; Ride</h3>
+                <p>Install ApexRide from the Play Store. Grant the permissions, hop on your bike, and let the app do the rest.</p>
+                <a href="https://play.google.com/store/apps/details?id=com.apexride" target="_blank" rel="noopener" class="step-link">
+                    Get on Play Store
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+    <div class="cta-box">
+        <h2>Help shape ApexRide</h2>
+        <p>Your feedback during the beta directly influences what we build next. Bugs, ideas, complaints — we want to hear it all.</p>
+        <a href="https://groups.google.com/g/apexridetester" target="_blank" rel="noopener" class="hero-cta">
+            Join the Beta
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </a>
+    </div>
+</section>
+
+<footer>
+    &copy; 2026 ApexRide. All rights reserved.
+</footer>
+
+</body>
+</html>
