@@ -284,9 +284,68 @@ async function deleteMapImages(lightUrl, darkUrl) {
   ]);
 }
 
+/**
+ * Build Google Static Maps URL from multiple encoded polylines (e.g. group ride members)
+ */
+function buildStaticMapUrlMultiPaths(encodedPolylines, isDark, apiKey) {
+  const size = '600x300';
+  const colors = isDark
+    ? ['FF9800FF', '4CAF50FF', '2196F3FF', 'E91E63FF', '9C27B0FF', '00BCD4FF']
+    : ['FB8C00FF', '388E3CFF', '1976D2FF', 'C2185BFF', '7B1FA2FF', '0097A7FF'];
+
+  let url = `${STATIC_MAPS_BASE}?size=${size}&scale=2&maptype=roadmap`;
+  encodedPolylines.forEach((polyline, i) => {
+    const color = colors[i % colors.length];
+    url += `&path=color:0x${color}|weight:3|enc:${polyline}`;
+  });
+  url += `&key=${apiKey}`;
+
+  if (isDark) {
+    url += `&${DARK_STYLE}`;
+  }
+
+  return url;
+}
+
+/**
+ * Generate light and dark map images from multiple encoded polylines (group ride actual routes)
+ * Returns { mapImageLightUrl, mapImageDarkUrl }
+ */
+async function generateMapImagesMultiPath(encodedPolylines, prefix = 'groupride') {
+  const apiKey = process.env.GOOGLE_STATIC_MAPS_API_KEY;
+  if (!apiKey) {
+    console.warn('⚠️ GOOGLE_STATIC_MAPS_API_KEY not set, skipping map image generation');
+    return { mapImageLightUrl: '', mapImageDarkUrl: '' };
+  }
+
+  if (!encodedPolylines || encodedPolylines.length === 0) {
+    return { mapImageLightUrl: '', mapImageDarkUrl: '' };
+  }
+
+  try {
+    const baseName = generateFileName(prefix);
+
+    const [lightBuffer, darkBuffer] = await Promise.all([
+      downloadImage(buildStaticMapUrlMultiPaths(encodedPolylines, false, apiKey)),
+      downloadImage(buildStaticMapUrlMultiPaths(encodedPolylines, true, apiKey))
+    ]);
+
+    const [mapImageLightUrl, mapImageDarkUrl] = await Promise.all([
+      uploadToFirebase(lightBuffer, `${baseName}_light.png`),
+      uploadToFirebase(darkBuffer, `${baseName}_dark.png`)
+    ]);
+
+    return { mapImageLightUrl, mapImageDarkUrl };
+  } catch (err) {
+    console.error('Multi-path map image generation error:', err.message);
+    return { mapImageLightUrl: '', mapImageDarkUrl: '' };
+  }
+}
+
 module.exports = {
   generateMapImages,
   generateMapImagesForPoint,
+  generateMapImagesMultiPath,
   copyMapImages,
   deleteMapImages,
   deleteFromFirebase

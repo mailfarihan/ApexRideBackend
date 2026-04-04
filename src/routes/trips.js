@@ -5,7 +5,7 @@ const Ride = require('../models/Ride');
 const Telemetry = require('../models/Telemetry');
 const Route = require('../models/Route');
 const User = require('../models/User');
-const { generateMapImages, generateMapImagesForPoint, copyMapImages, deleteMapImages } = require('../services/mapImage');
+const { generateMapImages, generateMapImagesForPoint, copyMapImages, deleteMapImages, generateMapImagesMultiPath } = require('../services/mapImage');
 
 // GET /api/trips - Get user's group rides (created + joined)
 router.get('/', async (req, res) => {
@@ -431,9 +431,44 @@ router.post('/:id/complete', async (req, res) => {
     trip.status = 'completed';
     trip.actualEndTime = Date.now();
     trip.totalParticipants = trip.attendeeIds.length;
+    
+    // Compute ride summary from linked rides
+    const linkedRides = await Ride.find({
+      $or: [
+        { _id: { $in: trip.completedRideIds || [] } },
+        { groupRideId: trip._id }
+      ]
+    }).select('distance duration avgSpeed encodedPolyline').lean();
+    
+    if (linkedRides.length > 0) {
+      const totalDistance = linkedRides.reduce((sum, r) => sum + (r.distance || 0), 0);
+      const totalDuration = linkedRides.reduce((sum, r) => sum + (r.duration || 0), 0);
+      const totalSpeed = linkedRides.reduce((sum, r) => sum + (r.avgSpeed || 0), 0);
+      trip.summaryAvgDistance = totalDistance / linkedRides.length;
+      trip.summaryAvgSpeed = totalSpeed / linkedRides.length;
+      trip.summaryAvgDuration = totalDuration / linkedRides.length;
+    }
+    
     await trip.save();
     
     res.json({ message: 'Group ride completed', trip });
+    
+    // Regenerate map images from actual ride polylines (async, non-blocking)
+    const polylines = linkedRides
+      .map(r => r.encodedPolyline)
+      .filter(p => p && p.length > 0);
+    if (polylines.length > 0) {
+      generateMapImagesMultiPath(polylines, 'groupride_actual')
+        .then(async ({ mapImageLightUrl, mapImageDarkUrl }) => {
+          if (mapImageLightUrl || mapImageDarkUrl) {
+            const oldLight = trip.mapImageLightUrl;
+            const oldDark = trip.mapImageDarkUrl;
+            await Trip.findByIdAndUpdate(trip._id, { mapImageLightUrl, mapImageDarkUrl });
+            deleteMapImages(oldLight, oldDark).catch(() => {});
+          }
+        })
+        .catch(err => console.error('Failed to regenerate group ride map:', err.message));
+    }
   } catch (error) {
     console.error('Complete trip error:', error);
     res.status(500).json({ error: 'Failed to complete group ride' });
@@ -489,6 +524,24 @@ router.post('/:id/link-ride', async (req, res) => {
     // Add the ride ID if not already linked
     if (!trip.completedRideIds.includes(rideId)) {
       trip.completedRideIds.push(rideId);
+      
+      // Recompute ride summary
+      const linkedRides = await Ride.find({
+        $or: [
+          { _id: { $in: trip.completedRideIds } },
+          { groupRideId: trip._id }
+        ]
+      }).select('distance duration avgSpeed').lean();
+      
+      if (linkedRides.length > 0) {
+        const totalDistance = linkedRides.reduce((sum, r) => sum + (r.distance || 0), 0);
+        const totalDuration = linkedRides.reduce((sum, r) => sum + (r.duration || 0), 0);
+        const totalSpeed = linkedRides.reduce((sum, r) => sum + (r.avgSpeed || 0), 0);
+        trip.summaryAvgDistance = totalDistance / linkedRides.length;
+        trip.summaryAvgSpeed = totalSpeed / linkedRides.length;
+        trip.summaryAvgDuration = totalDuration / linkedRides.length;
+      }
+      
       await trip.save();
     }
     

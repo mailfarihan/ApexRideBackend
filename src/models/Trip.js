@@ -66,7 +66,12 @@ const groupRideSchema = new mongoose.Schema({
   // Stats (populated after completion)
   actualStartTime: { type: Number },
   actualEndTime: { type: Number },
-  totalParticipants: { type: Number, default: 0 }
+  totalParticipants: { type: Number, default: 0 },
+  
+  // Ride summary (computed from linked rides after completion)
+  summaryAvgDistance: { type: Number, default: 0 }, // meters
+  summaryAvgSpeed: { type: Number, default: 0 },    // m/s
+  summaryAvgDuration: { type: Number, default: 0 }  // milliseconds
 }, {
   timestamps: true
 });
