@@ -7,6 +7,22 @@ const Route = require('../models/Route');
 const User = require('../models/User');
 const { generateMapImages, generateMapImagesForPoint, copyMapImages, deleteMapImages, generateMapImagesMultiPath } = require('../services/mapImage');
 
+// In-memory store for member location pings (ephemeral, no need to persist)
+// Key: tripId, Value: Map<userId, { lat, lng, timestamp, displayName }>
+const memberPings = new Map();
+const PING_EXPIRY_MS = 90_000; // pings older than 90s are stale
+const NEARBY_RADIUS_M = 500;
+
+function haversineDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // GET /api/trips - Get user's group rides (created + joined)
 router.get('/', async (req, res) => {
   try {
@@ -386,25 +402,157 @@ router.post('/:id/leave', async (req, res) => {
 });
 
 // POST /api/trips/:id/start - Start a group ride (creator only)
+// POST /api/trips/:id/ping - Member sends their location (lightweight heartbeat)
+router.post('/:id/ping', async (req, res) => {
+  try {
+    const { lat, lng } = req.body;
+    if (lat == null || lng == null) {
+      return res.status(400).json({ error: 'lat and lng required' });
+    }
+
+    const tripId = req.params.id;
+    const userId = req.user.uid;
+
+    // Verify user is an attendee
+    const trip = await Trip.findById(tripId).select('attendeeIds status dateTime startLocation').lean();
+    if (!trip) {
+      return res.status(404).json({ error: 'Group ride not found' });
+    }
+    if (!trip.attendeeIds.includes(userId) && trip.creatorId !== userId) {
+      return res.status(403).json({ error: 'Not a member of this group ride' });
+    }
+
+    // Store ping
+    if (!memberPings.has(tripId)) {
+      memberPings.set(tripId, new Map());
+    }
+    memberPings.get(tripId).set(userId, {
+      lat: parseFloat(lat),
+      lng: parseFloat(lng),
+      timestamp: Date.now(),
+      displayName: req.user.name || ''
+    });
+
+    // Auto-trigger: if UPCOMING, within time window, enough nearby members → start
+    let autoStarted = false;
+    if (trip.status === 'upcoming') {
+      const now = Date.now();
+      const timeToRide = trip.dateTime - now;
+      const TIME_BEFORE = 30 * 60 * 1000;
+      const TIME_AFTER = 60 * 60 * 1000;
+
+      if (timeToRide >= -TIME_AFTER && timeToRide <= TIME_BEFORE) {
+        // Count nearby members
+        const pings = memberPings.get(tripId);
+        const startLat = trip.startLocation?.coordinates?.[1];
+        const startLng = trip.startLocation?.coordinates?.[0];
+        let nearbyCount = 0;
+
+        if (startLat != null && startLng != null && pings) {
+          for (const [uid, ping] of pings) {
+            if (Date.now() - ping.timestamp > PING_EXPIRY_MS) continue;
+            const dist = haversineDistance(ping.lat, ping.lng, startLat, startLng);
+            if (dist <= NEARBY_RADIUS_M) nearbyCount++;
+          }
+        }
+
+        // Auto-start if ≥2 members nearby (including this user)
+        if (nearbyCount >= 2) {
+          await Trip.findByIdAndUpdate(tripId, {
+            status: 'ongoing',
+            actualStartTime: Date.now()
+          });
+          autoStarted = true;
+        }
+      }
+    }
+
+    // Count members near THIS user's current position (for ongoing ride linkage)
+    let nearbyUserCount = 0;
+    const pingsForCount = memberPings.get(tripId);
+    if (pingsForCount) {
+      const userLat = parseFloat(lat);
+      const userLng = parseFloat(lng);
+      for (const [uid, ping] of pingsForCount) {
+        if (uid === userId) continue; // skip self
+        if (Date.now() - ping.timestamp > PING_EXPIRY_MS) continue;
+        const dist = haversineDistance(ping.lat, ping.lng, userLat, userLng);
+        if (dist <= NEARBY_RADIUS_M) nearbyUserCount++;
+      }
+    }
+
+    res.json({ ok: true, autoStarted, nearbyUserCount });
+  } catch (error) {
+    console.error('Ping error:', error);
+    res.status(500).json({ error: 'Failed to process ping' });
+  }
+});
+
+// GET /api/trips/:id/nearby - Get members with recent location pings near start
+router.get('/:id/nearby', async (req, res) => {
+  try {
+    const tripId = req.params.id;
+
+    const trip = await Trip.findById(tripId).select('attendeeIds startLocation creatorId').lean();
+    if (!trip) {
+      return res.status(404).json({ error: 'Group ride not found' });
+    }
+
+    const pings = memberPings.get(tripId);
+    if (!pings) {
+      return res.json({ members: [], count: 0 });
+    }
+
+    const startLat = trip.startLocation?.coordinates?.[1];
+    const startLng = trip.startLocation?.coordinates?.[0];
+    const now = Date.now();
+    const nearby = [];
+
+    for (const [userId, ping] of pings) {
+      if (now - ping.timestamp > PING_EXPIRY_MS) continue;
+      if (startLat != null && startLng != null) {
+        const dist = haversineDistance(ping.lat, ping.lng, startLat, startLng);
+        if (dist <= NEARBY_RADIUS_M) {
+          nearby.push({
+            userId,
+            displayName: ping.displayName,
+            distanceM: Math.round(dist),
+            lastPing: ping.timestamp
+          });
+        }
+      }
+    }
+
+    res.json({ members: nearby, count: nearby.length });
+  } catch (error) {
+    console.error('Nearby error:', error);
+    res.status(500).json({ error: 'Failed to get nearby members' });
+  }
+});
+
+// POST /api/trips/:id/start - Start a group ride (creator OR auto-trigger by any attendee)
 router.post('/:id/start', async (req, res) => {
   try {
-    const trip = await Trip.findOne({
-      _id: req.params.id,
-      creatorId: req.user.uid
-    });
-    
+    const userId = req.user.uid;
+    const trip = await Trip.findById(req.params.id);
+
     if (!trip) {
-      return res.status(404).json({ error: 'Group ride not found or not authorized' });
+      return res.status(404).json({ error: 'Group ride not found' });
     }
-    
+
+    // Must be creator or attendee
+    if (trip.creatorId !== userId && !trip.attendeeIds.includes(userId)) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
     if (trip.status !== 'upcoming') {
       return res.status(400).json({ error: 'Group ride already started or completed' });
     }
-    
+
     trip.status = 'ongoing';
     trip.actualStartTime = Date.now();
     await trip.save();
-    
+
     res.json({ message: 'Group ride started', trip });
   } catch (error) {
     console.error('Start trip error:', error);
