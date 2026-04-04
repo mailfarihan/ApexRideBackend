@@ -13,6 +13,110 @@ const memberPings = new Map();
 const PING_EXPIRY_MS = 90_000; // pings older than 90s are stale
 const NEARBY_RADIUS_M = 500;
 
+// ─── Auto-complete infrastructure ───
+// Auto-completion relies solely on a periodic stale sweep that checks
+// whether the most recent linked ride ended more than 3 h ago.
+// This lets groups do multiple ride sessions with breaks in between;
+// the creator can always complete manually at any time.
+const STALE_IDLE_MS = 3 * 60 * 60 * 1000; // 3 hours of no new ride activity
+
+/**
+ * Execute the completion: set status, compute summary, regenerate map image.
+ * Mirrors the manual POST /:id/complete logic.
+ */
+async function executeAutoComplete(tripId) {
+  const trip = await Trip.findById(tripId);
+  if (!trip || trip.status !== 'ongoing') return;
+
+  const linkedRides = await Ride.find({
+    $or: [
+      { _id: { $in: trip.completedRideIds || [] } },
+      { groupRideId: tripId }
+    ]
+  }).select('distance duration avgSpeed encodedPolyline userId').lean();
+
+  trip.status = 'completed';
+  trip.actualEndTime = Date.now();
+  trip.totalParticipants = new Set(linkedRides.map(r => r.userId)).size;
+
+  if (linkedRides.length > 0) {
+    const totalDistance = linkedRides.reduce((s, r) => s + (r.distance || 0), 0);
+    const totalDuration = linkedRides.reduce((s, r) => s + (r.duration || 0), 0);
+    const totalSpeed = linkedRides.reduce((s, r) => s + (r.avgSpeed || 0), 0);
+    trip.summaryAvgDistance = totalDistance / linkedRides.length;
+    trip.summaryAvgSpeed = totalSpeed / linkedRides.length;
+    trip.summaryAvgDuration = totalDuration / linkedRides.length;
+  }
+
+  await trip.save();
+
+  // Clean up pings
+  memberPings.delete(tripId);
+
+  // Regenerate map with all member routes (async, non-blocking)
+  const polylines = linkedRides
+    .map(r => r.encodedPolyline)
+    .filter(p => p && p.length > 0);
+  if (polylines.length > 0) {
+    generateMapImagesMultiPath(polylines, 'groupride_actual')
+      .then(async ({ mapImageLightUrl, mapImageDarkUrl }) => {
+        if (mapImageLightUrl || mapImageDarkUrl) {
+          const oldLight = trip.mapImageLightUrl;
+          const oldDark = trip.mapImageDarkUrl;
+          await Trip.findByIdAndUpdate(tripId, { mapImageLightUrl, mapImageDarkUrl });
+          deleteMapImages(oldLight, oldDark).catch(() => {});
+        }
+      })
+      .catch(err => console.error('Auto-complete map regen error:', err.message));
+  }
+
+  console.log(`Auto-completed group ride ${tripId} with ${linkedRides.length} linked rides from ${trip.totalParticipants} riders`);
+}
+
+// ─── Periodic stale-ongoing sweep ───
+// Runs every 30 min.  For each ongoing trip that has ≥1 linked ride,
+// check the most-recent ride endTime.  If that ride ended >3 h ago
+// (meaning no new riding activity), auto-complete the group ride.
+// Also catches trips that started >6 h ago with no rides at all.
+setInterval(async () => {
+  try {
+    const ongoingTrips = await Trip.find({ status: 'ongoing' })
+      .select('_id completedRideIds actualStartTime dateTime')
+      .lean();
+
+    for (const t of ongoingTrips) {
+      const linkedRides = await Ride.find({
+        $or: [
+          { _id: { $in: t.completedRideIds || [] } },
+          { groupRideId: t._id }
+        ]
+      }).select('endTime').lean();
+
+      if (linkedRides.length > 0) {
+        // Use the most recent ride endTime to decide staleness
+        const lastEnd = Math.max(...linkedRides.map(r => r.endTime || 0));
+        if (lastEnd > 0 && Date.now() - lastEnd >= STALE_IDLE_MS) {
+          await executeAutoComplete(t._id.toString());
+        }
+      } else {
+        // No rides linked at all — complete if started >6 h ago (abandoned)
+        const startedAt = t.actualStartTime || t.dateTime || 0;
+        if (startedAt > 0 && Date.now() - startedAt >= STALE_IDLE_MS * 2) {
+          // No rides to summarise — just mark completed
+          await Trip.findByIdAndUpdate(t._id, {
+            status: 'completed',
+            actualEndTime: Date.now(),
+            totalParticipants: 0
+          });
+          console.log(`Stale sweep: completed abandoned group ride ${t._id}`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Stale ongoing sweep error:', err.message);
+  }
+}, 30 * 60 * 1000);
+
 function haversineDistance(lat1, lng1, lat2, lng2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -426,14 +530,33 @@ router.post('/:id/ping', async (req, res) => {
     if (!memberPings.has(tripId)) {
       memberPings.set(tripId, new Map());
     }
+
+    // Compute speed from consecutive pings (m/s) — used to filter out riders in motion
+    const prevPing = memberPings.get(tripId).get(userId);
+    let speedMps = 0;
+    if (prevPing) {
+      const dt = (Date.now() - prevPing.timestamp) / 1000; // seconds
+      if (dt > 0 && dt < PING_EXPIRY_MS / 1000) {
+        const dist = haversineDistance(prevPing.lat, prevPing.lng, parseFloat(lat), parseFloat(lng));
+        speedMps = dist / dt;
+      }
+    }
+
     memberPings.get(tripId).set(userId, {
       lat: parseFloat(lat),
       lng: parseFloat(lng),
       timestamp: Date.now(),
-      displayName: req.user.name || ''
+      displayName: req.user.name || '',
+      speedMps
     });
 
-    // Auto-trigger: if UPCOMING, within time window, enough nearby members → start
+    // Auto-trigger: if UPCOMING, within time window, enough STATIONARY nearby members → start
+    // "Stationary" means speed < 5 m/s (~18 km/h) — filters out riders passing through
+    //
+    // Two-tier check:
+    //   PRIMARY:  ≥2 stationary members within 500m of startLocation
+    //   FALLBACK: ≥2 stationary members within 500m of each other (any location)
+    const STATIONARY_SPEED_MPS = 5;
     let autoStarted = false;
     if (trip.status === 'upcoming') {
       const now = Date.now();
@@ -442,22 +565,52 @@ router.post('/:id/ping', async (req, res) => {
       const TIME_AFTER = 60 * 60 * 1000;
 
       if (timeToRide >= -TIME_AFTER && timeToRide <= TIME_BEFORE) {
-        // Count nearby members
         const pings = memberPings.get(tripId);
-        const startLat = trip.startLocation?.coordinates?.[1];
-        const startLng = trip.startLocation?.coordinates?.[0];
-        let nearbyCount = 0;
 
-        if (startLat != null && startLng != null && pings) {
+        // Collect fresh, stationary pings
+        const fresh = [];
+        if (pings && pings.size >= 2) {
           for (const [uid, ping] of pings) {
-            if (Date.now() - ping.timestamp > PING_EXPIRY_MS) continue;
-            const dist = haversineDistance(ping.lat, ping.lng, startLat, startLng);
-            if (dist <= NEARBY_RADIUS_M) nearbyCount++;
+            if (Date.now() - ping.timestamp <= PING_EXPIRY_MS && ping.speedMps < STATIONARY_SPEED_MPS) {
+              fresh.push({ uid, lat: ping.lat, lng: ping.lng });
+            }
           }
         }
 
-        // Auto-start if ≥2 members nearby (including this user)
-        if (nearbyCount >= 2) {
+        let shouldStart = false;
+
+        // PRIMARY: ≥2 stationary members near startLocation
+        const startLat = trip.startLocation?.coordinates?.[1];
+        const startLng = trip.startLocation?.coordinates?.[0];
+        if (startLat != null && startLng != null) {
+          let nearStartCount = 0;
+          for (const p of fresh) {
+            if (haversineDistance(p.lat, p.lng, startLat, startLng) <= NEARBY_RADIUS_M) {
+              nearStartCount++;
+            }
+          }
+          if (nearStartCount >= 2) shouldStart = true;
+        }
+
+        // FALLBACK: ≥2 stationary members near each other (any location)
+        if (!shouldStart && fresh.length >= 2) {
+          const nearbySet = new Set();
+          for (let i = 0; i < fresh.length; i++) {
+            for (let j = i + 1; j < fresh.length; j++) {
+              const dist = haversineDistance(
+                fresh[i].lat, fresh[i].lng,
+                fresh[j].lat, fresh[j].lng
+              );
+              if (dist <= NEARBY_RADIUS_M) {
+                nearbySet.add(fresh[i].uid);
+                nearbySet.add(fresh[j].uid);
+              }
+            }
+          }
+          if (nearbySet.size >= 2) shouldStart = true;
+        }
+
+        if (shouldStart) {
           await Trip.findByIdAndUpdate(tripId, {
             status: 'ongoing',
             actualStartTime: Date.now()
@@ -575,7 +728,7 @@ router.post('/:id/complete', async (req, res) => {
     if (trip.status !== 'ongoing') {
       return res.status(400).json({ error: 'Group ride must be ongoing to complete' });
     }
-    
+
     trip.status = 'completed';
     trip.actualEndTime = Date.now();
     trip.totalParticipants = trip.attendeeIds.length;

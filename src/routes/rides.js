@@ -107,16 +107,16 @@ router.post('/sync', async (req, res) => {
         if (ride.groupRideId) {
           updateDoc.groupRideId = ride.groupRideId;
         } else if (ride.startTime) {
-          // Smart auto-link: find ongoing/completed group rides where user is a participant
-          // and ride time overlaps with the group ride time window
+          // Fallback auto-link: only match ONGOING group rides (not completed).
+          // This prevents solo rides after the group ride from being linked.
+          // The ride must overlap with the group ride's active window.
           try {
             const matchingTrip = await Trip.findOne({
               attendeeIds: req.user.uid,
-              status: { $in: ['ongoing', 'completed'] },
-              // Group ride started within 1 hour before or after the ride
+              status: 'ongoing',
               $or: [
-                { actualStartTime: { $gte: ride.startTime - 3600000, $lte: ride.startTime + 3600000 } },
-                { dateTime: { $gte: ride.startTime - 3600000, $lte: ride.startTime + 3600000 } }
+                { actualStartTime: { $lte: ride.startTime } },
+                { dateTime: { $lte: ride.startTime } }
               ]
             }).lean();
             if (matchingTrip) {
@@ -177,8 +177,9 @@ router.post('/sync', async (req, res) => {
         
         // Auto-link ride to group ride if groupRideId is set
         if (updateDoc.groupRideId) {
+          const gid = updateDoc.groupRideId;
           Trip.findByIdAndUpdate(
-            updateDoc.groupRideId,
+            gid,
             { $addToSet: { completedRideIds: result._id } }
           ).catch(err => console.error('Auto-link to group ride error:', err.message));
         }
