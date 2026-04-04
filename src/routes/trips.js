@@ -553,10 +553,14 @@ router.get('/:id/detail', async (req, res) => {
     ])];
     const users = await User.find(
       { firebaseUid: { $in: allUserIds } },
-      { firebaseUid: 1, displayName: 1 }
+      { firebaseUid: 1, displayName: 1, photoUrl: 1 }
     ).lean();
     const userNameMap = {};
-    users.forEach(u => { userNameMap[u.firebaseUid] = u.displayName || 'Rider'; });
+    const userPhotoMap = {};
+    users.forEach(u => { 
+      userNameMap[u.firebaseUid] = u.displayName || 'Rider';
+      userPhotoMap[u.firebaseUid] = u.photoUrl || '';
+    });
 
     // Build response
     res.json({
@@ -566,7 +570,8 @@ router.get('/:id/detail', async (req, res) => {
       isJoined: trip.attendeeIds?.includes(req.user.uid) || false,
       participants: allUserIds.map(uid => ({
         userId: uid,
-        displayName: userNameMap[uid] || 'Rider'
+        displayName: userNameMap[uid] || 'Rider',
+        photoUrl: userPhotoMap[uid] || ''
       })),
       rides: rides.map(r => ({
         _id: r._id,
