@@ -298,6 +298,7 @@ if (encodedPolyline) {
 </html>`;
 
     res.set('Content-Type', 'text/html');
+    res.set('Content-Security-Policy', "default-src 'self'; img-src 'self' https://apexride.dev https://*.googleusercontent.com https://*.googleapis.com https://*.basemaps.cartocdn.com data:; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src https://fonts.gstatic.com; connect-src 'self'");
     res.send(html);
   } catch (error) {
     console.error('Ride page error:', error);
