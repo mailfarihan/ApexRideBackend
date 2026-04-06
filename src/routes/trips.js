@@ -429,7 +429,10 @@ router.put('/:id', async (req, res) => {
     }
     
     await trip.save();
-    res.json(trip);
+    const tripObj = trip.toObject();
+    tripObj.isCreator = true;
+    tripObj.isJoined = true;
+    res.json(tripObj);
   } catch (error) {
     console.error('Update trip error:', error);
     res.status(500).json({ error: 'Failed to update group ride' });
