@@ -128,8 +128,8 @@ app.get('/ride', async (req, res) => {
     const attendeeCount = (trip.attendeeIds || []).length;
     const dateObj = new Date(trip.dateTime);
     const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-    const locationLine = trip.startAddress ? `&#10;&#10;📍 ${trip.startAddress}` : '';
-    const ogDescription = `&#10;📅 ${dateStr}${locationLine}`;
+    const locationLine = trip.startAddress ? `\n\n📍 ${trip.startAddress}` : '';
+    const ogDescription = `\n📅 ${dateStr}${locationLine}`;
 
     const participants = (trip.attendeeIds || []).map(uid => ({
       displayName: userMap[uid]?.displayName || 'Rider',
@@ -149,7 +149,7 @@ app.get('/ride', async (req, res) => {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(trip.title)} — ApexRide Group Ride</title>
 <meta property="og:title" content="${esc(trip.title)}">
-<meta property="og:description" content="${esc(ogDescription).replace(/\n/g, '&#10;')}">
+<meta property="og:description" content="${ogDescription.replace(/\n/g, '&#10;')}">
 <meta property="og:url" content="https://apexride.dev/ride?id=${esc(rideId)}">
 <meta property="og:image" content="${esc(trip.mapImageDarkUrl || 'https://apexride.dev/images/screenshot-map.jpeg')}">
 <meta property="og:type" content="website">
