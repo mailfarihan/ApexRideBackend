@@ -287,7 +287,7 @@ if (encodedPolyline) {
   var polyline = L.polyline(coords, { color: '#ff9800', weight: 3, opacity: 0.9 }).addTo(map);
   map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
 } else if (startLat && startLng) {
-  L.marker([startLat, startLng]).addTo(map);
+  L.circleMarker([startLat, startLng], { radius: 10, color: '#f57c00', fillColor: '#ff9800', fillOpacity: 1, weight: 2 }).addTo(map);
   map.setView([startLat, startLng], 13);
 } else {
   map.setView([0, 0], 2);
