@@ -105,6 +105,7 @@ app.use((err, req, res, next) => {
 
 // Connect to MongoDB and start server
 const PORT = process.env.PORT || 3000;
+const purgeDeletedAccounts = require('./cron/purgeDeletedAccounts');
 
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => {
@@ -112,6 +113,10 @@ mongoose.connect(process.env.MONGODB_URI)
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
+
+    // Run purge job once on startup, then every 24 hours
+    purgeDeletedAccounts();
+    setInterval(purgeDeletedAccounts, 24 * 60 * 60 * 1000);
   })
   .catch(err => {
     console.error('❌ MongoDB connection error:', err.message);

@@ -31,6 +31,15 @@ router.get('/me', async (req, res) => {
       });
       await user.save();
     }
+
+    // Auto-reactivate: if user logs back in before 30 days, cancel deletion
+    if (user.deletionScheduledAt) {
+      console.log(`Account auto-reactivated on login - uid: ${req.user.uid}`);
+      user.deletionScheduledAt = null;
+      user.deletionReason = null;
+      user.deletionFeedback = null;
+      await user.save();
+    }
     
     res.json(user);
   } catch (error) {
@@ -184,65 +193,65 @@ router.post('/:uid/unfollow', async (req, res) => {
   }
 });
 
-// DELETE /api/users/me - Permanently delete account and all associated data
+// DELETE /api/users/me - Schedule account for deletion (30-day grace period)
 router.delete('/me', async (req, res) => {
   try {
     const uid = req.user.uid;
+    const { reason, feedback } = req.body || {};
 
-    // 1. Delete user's profile photo from Firebase Storage
     const user = await User.findOne({ firebaseUid: uid });
-    if (user?.photoUrl) {
-      deleteFromFirebase(user.photoUrl).catch(() => {});
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
     }
 
-    // 2. Delete all ride map images from Firebase Storage
-    const rides = await Ride.find({ userId: uid }, { mapImageLightUrl: 1, mapImageDarkUrl: 1 });
-    for (const ride of rides) {
-      if (ride.mapImageLightUrl) deleteFromFirebase(ride.mapImageLightUrl).catch(() => {});
-      if (ride.mapImageDarkUrl) deleteFromFirebase(ride.mapImageDarkUrl).catch(() => {});
+    // Log deletion reason
+    if (reason || feedback) {
+      console.log(`Account deletion scheduled - uid: ${uid}, reason: ${reason || 'none'}, feedback: ${feedback || 'none'}`);
     }
 
-    // 3. Delete all route map images from Firebase Storage
-    const routes = await Route.find({ creatorId: uid }, { mapImageLightUrl: 1, mapImageDarkUrl: 1 });
-    for (const route of routes) {
-      if (route.mapImageLightUrl) deleteFromFirebase(route.mapImageLightUrl).catch(() => {});
-      if (route.mapImageDarkUrl) deleteFromFirebase(route.mapImageDarkUrl).catch(() => {});
-    }
+    // Soft delete: schedule for 30 days from now
+    const deletionDate = new Date();
+    deletionDate.setDate(deletionDate.getDate() + 30);
 
-    // 4. Cascade delete all user data from MongoDB
-    await Promise.all([
-      Ride.deleteMany({ userId: uid }),
-      Telemetry.deleteMany({ userId: uid }),
-      Route.deleteMany({ creatorId: uid }),
-      Trip.updateMany(
-        { attendeeIds: uid },
-        { $pull: { attendeeIds: uid } }
-      ),
-      Trip.deleteMany({ creatorId: uid }),
-      // Remove user from other users' followers/following lists
-      User.updateMany(
-        { followers: uid },
-        { $pull: { followers: uid } }
-      ),
-      User.updateMany(
-        { following: uid },
-        { $pull: { following: uid } }
-      ),
-      User.deleteOne({ firebaseUid: uid })
-    ]);
+    user.deletionScheduledAt = deletionDate;
+    user.deletionReason = reason || null;
+    user.deletionFeedback = feedback || null;
+    await user.save();
 
-    // 5. Delete Firebase Auth account
-    try {
-      await admin.auth().deleteUser(uid);
-    } catch (authErr) {
-      // Auth deletion may fail if already deleted; log but don't block response
-      console.warn('Firebase Auth deletion warning:', authErr.message);
-    }
-
-    res.json({ message: 'Account permanently deleted' });
+    res.json({ 
+      message: 'Account scheduled for deletion',
+      deletionScheduledAt: deletionDate.toISOString()
+    });
   } catch (error) {
     console.error('Delete account error:', error);
-    res.status(500).json({ error: 'Failed to delete account' });
+    res.status(500).json({ error: 'Failed to schedule account deletion' });
+  }
+});
+
+// POST /api/users/me/reactivate - Cancel scheduled deletion
+router.post('/me/reactivate', async (req, res) => {
+  try {
+    const uid = req.user.uid;
+
+    const user = await User.findOne({ firebaseUid: uid });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!user.deletionScheduledAt) {
+      return res.json({ message: 'Account is not scheduled for deletion' });
+    }
+
+    console.log(`Account reactivated - uid: ${uid}`);
+    user.deletionScheduledAt = null;
+    user.deletionReason = null;
+    user.deletionFeedback = null;
+    await user.save();
+
+    res.json({ message: 'Account reactivated successfully' });
+  } catch (error) {
+    console.error('Reactivate account error:', error);
+    res.status(500).json({ error: 'Failed to reactivate account' });
   }
 });
 

@@ -60,6 +60,20 @@ const userSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  },
+  
+  // Soft-delete: scheduled deletion date (30 days from request)
+  deletionScheduledAt: {
+    type: Date,
+    default: null
+  },
+  deletionReason: {
+    type: String,
+    default: null
+  },
+  deletionFeedback: {
+    type: String,
+    default: null
   }
 });
 
