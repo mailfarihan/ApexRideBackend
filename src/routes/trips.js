@@ -253,7 +253,7 @@ router.post('/', async (req, res) => {
       title, description, dateTime, 
       startLat, startLng, startAddress,
       endLat, endLng, endAddress,
-      estimatedDuration, estimatedDistance, difficulty,
+      estimatedDuration, estimatedDistance,
       linkedRouteId, maxRiders, isPublic,
       ridingStyles, extraInfo
     } = req.body;
@@ -316,7 +316,7 @@ router.post('/', async (req, res) => {
       endAddress: resolvedEndAddress,
       estimatedDuration: estimatedDuration || 0,
       estimatedDistance: estimatedDistance || 0,
-      difficulty: difficulty || 'moderate',
+
       linkedRouteId: linkedRouteId || null,
       ridingStyles: ridingStyles || [],
       extraInfo: extraInfo || '',
@@ -396,7 +396,7 @@ router.put('/:id', async (req, res) => {
     // Updatable fields
     const updateFields = [
       'title', 'description', 'dateTime', 'startAddress', 'endAddress',
-      'estimatedDuration', 'estimatedDistance', 'difficulty',
+      'estimatedDuration', 'estimatedDistance',
       'linkedRouteId', 'ridingStyles', 'extraInfo',
       'maxRiders', 'isPublic'
     ];

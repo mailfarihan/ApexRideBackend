@@ -44,7 +44,7 @@ const User = require('./models/User');
 app.get('/api/trips/:id/invite', async (req, res) => {
   try {
     const trip = await Trip.findById(req.params.id)
-      .select('title description startAddress dateTime status creatorId creatorName creatorPhotoUrl attendeeIds ridingStyles difficulty estimatedDistance linkedRouteId maxRiders')
+      .select('title description startAddress dateTime status creatorId creatorName creatorPhotoUrl attendeeIds ridingStyles estimatedDistance linkedRouteId maxRiders mapImageDarkUrl extraInfo')
       .lean();
 
     if (!trip) {
@@ -79,8 +79,9 @@ app.get('/api/trips/:id/invite', async (req, res) => {
       attendeeCount: (trip.attendeeIds || []).length,
       maxRiders: trip.maxRiders || 0,
       ridingStyles: trip.ridingStyles || [],
-      difficulty: trip.difficulty,
       estimatedDistance: trip.estimatedDistance,
+      mapImageDarkUrl: trip.mapImageDarkUrl || '',
+      extraInfo: trip.extraInfo || '',
       participants
     });
   } catch (error) {
