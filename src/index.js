@@ -128,8 +128,8 @@ app.get('/ride', async (req, res) => {
     const attendeeCount = (trip.attendeeIds || []).length;
     const dateObj = new Date(trip.dateTime);
     const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-    const locationLine = trip.startAddress ? `\n📍 ${trip.startAddress}` : '';
-    const ogDescription = `📅 ${dateStr}${locationLine}`;
+    const locationLine = trip.startAddress ? `&#10;&#10;📍 ${trip.startAddress}` : '';
+    const ogDescription = `&#10;📅 ${dateStr}${locationLine}`;
 
     const participants = (trip.attendeeIds || []).map(uid => ({
       displayName: userMap[uid]?.displayName || 'Rider',
@@ -148,7 +148,7 @@ app.get('/ride', async (req, res) => {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(trip.title)} — ApexRide Group Ride</title>
-<meta property="og:title" content="${esc(trip.title)} — ApexRide">
+<meta property="og:title" content="${esc(trip.title)}">
 <meta property="og:description" content="${esc(ogDescription).replace(/\n/g, '&#10;')}">
 <meta property="og:url" content="https://apexride.dev/ride?id=${esc(rideId)}">
 <meta property="og:image" content="${esc(trip.mapImageDarkUrl || 'https://apexride.dev/images/screenshot-map.jpeg')}">
@@ -299,9 +299,9 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
 
 var orangePin = L.divIcon({
   className: '',
-  html: '<svg width="32" height="42" viewBox="0 0 32 42" xmlns="http://www.w3.org/2000/svg"><path d="M16 0C7.16 0 0 7.16 0 16c0 12 16 26 16 26s16-14 16-26C32 7.16 24.84 0 16 0z" fill="#ff9800" stroke="#e65100" stroke-width="1.5"/><circle cx="16" cy="15" r="6" fill="white"/></svg>',
-  iconSize: [32, 42],
-  iconAnchor: [16, 42]
+  html: '<svg width="24" height="32" viewBox="0 0 32 42" xmlns="http://www.w3.org/2000/svg"><path d="M16 0C7.16 0 0 7.16 0 16c0 12 16 26 16 26s16-14 16-26C32 7.16 24.84 0 16 0z" fill="#ff9800" stroke="#e65100" stroke-width="1.5"/><circle cx="16" cy="15" r="6" fill="white"/></svg>',
+  iconSize: [24, 32],
+  iconAnchor: [12, 32]
 });
 
 if (encodedPolyline) {
