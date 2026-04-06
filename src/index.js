@@ -128,7 +128,8 @@ app.get('/ride', async (req, res) => {
     const attendeeCount = (trip.attendeeIds || []).length;
     const dateObj = new Date(trip.dateTime);
     const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-    const ogDescription = `${dateStr} • ${attendeeCount} rider${attendeeCount !== 1 ? 's' : ''} • by ${creatorName}`;
+    const locationLine = trip.startAddress ? `\n📍 ${trip.startAddress}` : '';
+    const ogDescription = `${trip.title}\n📅 ${dateStr}${locationLine}`;
 
     const participants = (trip.attendeeIds || []).map(uid => ({
       displayName: userMap[uid]?.displayName || 'Rider',
@@ -147,7 +148,7 @@ app.get('/ride', async (req, res) => {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(trip.title)} — ApexRide Group Ride</title>
-<meta property="og:title" content="${esc(trip.title)} — ApexRide Group Ride">
+<meta property="og:title" content="ApexRide — Group Ride Invite">
 <meta property="og:description" content="${esc(ogDescription)}">
 <meta property="og:url" content="https://apexride.dev/ride?id=${esc(rideId)}">
 <meta property="og:image" content="${esc(trip.mapImageDarkUrl || 'https://apexride.dev/images/screenshot-map.jpeg')}">
