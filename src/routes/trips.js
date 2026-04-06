@@ -143,8 +143,16 @@ router.get('/', async (req, res) => {
     .lean();
     
     // Add computed fields for the client
+    const creatorIds = [...new Set(trips.map(t => t.creatorId).filter(Boolean))];
+    const creators = await User.find({ firebaseUid: { $in: creatorIds } }).select('firebaseUid photoUrl').lean();
+    const creatorPhotoMap = {};
+    for (const c of creators) {
+      if (c.photoUrl) creatorPhotoMap[c.firebaseUid] = c.photoUrl;
+    }
+    
     const enrichedTrips = trips.map(t => ({
       ...t,
+      creatorPhotoUrl: creatorPhotoMap[t.creatorId] || t.creatorPhotoUrl || '',
       attendeeCount: t.attendeeIds?.length || 0,
       isCreator: t.creatorId === userId,
       isJoined: t.attendeeIds?.includes(userId) || false
@@ -209,8 +217,18 @@ router.get('/discover', async (req, res) => {
     
     // Add computed fields for the client
     const userId = req.user.uid;
+    
+    // Resolve fresh creator photos from User model
+    const creatorIds = [...new Set(trips.map(t => t.creatorId).filter(Boolean))];
+    const creators = await User.find({ firebaseUid: { $in: creatorIds } }).select('firebaseUid photoUrl').lean();
+    const creatorPhotoMap = {};
+    for (const c of creators) {
+      if (c.photoUrl) creatorPhotoMap[c.firebaseUid] = c.photoUrl;
+    }
+    
     trips = trips.map(t => ({
       ...t,
+      creatorPhotoUrl: creatorPhotoMap[t.creatorId] || t.creatorPhotoUrl || '',
       attendeeCount: t.attendeeIds?.length || 0,
       isCreator: t.creatorId === userId,
       isJoined: t.attendeeIds?.includes(userId) || false
@@ -238,9 +256,19 @@ router.get('/:id', async (req, res) => {
         !trip.attendeeIds.includes(req.user.uid)) {
       return res.status(403).json({ error: 'This group ride is private' });
     }
+
+    // Resolve fresh creator photo from User model
+    let creatorPhotoUrl = trip.creatorPhotoUrl || '';
+    if (trip.creatorId) {
+      const creator = await User.findOne({ firebaseUid: trip.creatorId }).select('photoUrl').lean();
+      if (creator?.photoUrl) {
+        creatorPhotoUrl = creator.photoUrl;
+      }
+    }
     
     res.json({
       ...trip,
+      creatorPhotoUrl,
       attendeeCount: trip.attendeeIds?.length || 0,
       isCreator: trip.creatorId === req.user.uid,
       isJoined: trip.attendeeIds?.includes(req.user.uid) || false

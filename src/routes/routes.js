@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Route = require('../models/Route');
 const Ride = require('../models/Ride');
+const User = require('../models/User');
 const { generateMapImages, copyMapImages, deleteMapImages } = require('../services/mapImage');
 
 // GET /api/routes - Get public routes with optional geo filter
@@ -86,7 +87,12 @@ router.get('/', async (req, res) => {
         { $limit: parseInt(limit) }
       ]);
       
-      return res.json(routes);
+      // Resolve creator photos
+      const geoCreatorIds = [...new Set(routes.map(r => r.creatorId).filter(Boolean))];
+      const geoCreators = await User.find({ firebaseUid: { $in: geoCreatorIds } }).select('firebaseUid photoUrl').lean();
+      const geoPhotoMap = {};
+      for (const c of geoCreators) { if (c.photoUrl) geoPhotoMap[c.firebaseUid] = c.photoUrl; }
+      return res.json(routes.map(r => ({ ...r, creatorPhotoUrl: geoPhotoMap[r.creatorId] || r.creatorPhotoUrl || '' })));
     }
     
     const routes = await Route.find(query)
@@ -94,7 +100,13 @@ router.get('/', async (req, res) => {
       .limit(parseInt(limit))
       .lean();
     
-    res.json(routes);
+    // Resolve creator photos
+    const creatorIds = [...new Set(routes.map(r => r.creatorId).filter(Boolean))];
+    const creators = await User.find({ firebaseUid: { $in: creatorIds } }).select('firebaseUid photoUrl').lean();
+    const photoMap = {};
+    for (const c of creators) { if (c.photoUrl) photoMap[c.firebaseUid] = c.photoUrl; }
+    
+    res.json(routes.map(r => ({ ...r, creatorPhotoUrl: photoMap[r.creatorId] || r.creatorPhotoUrl || '' })));
   } catch (error) {
     console.error('Get routes error:', error);
     res.status(500).json({ error: 'Failed to get routes' });
@@ -122,7 +134,13 @@ router.get('/:id', async (req, res) => {
     if (!route) {
       return res.status(404).json({ error: 'Route not found' });
     }
-    res.json(route);
+    // Resolve fresh creator photo
+    let creatorPhotoUrl = route.creatorPhotoUrl || '';
+    if (route.creatorId) {
+      const creator = await User.findOne({ firebaseUid: route.creatorId }).select('photoUrl').lean();
+      if (creator?.photoUrl) creatorPhotoUrl = creator.photoUrl;
+    }
+    res.json({ ...route, creatorPhotoUrl });
   } catch (error) {
     console.error('Get route error:', error);
     res.status(500).json({ error: 'Failed to get route' });
