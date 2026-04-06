@@ -36,6 +36,59 @@ const telemetryRouter = require('./routes/telemetry');
 // Auth routes (no middleware - used for sign-in sync)
 
 
+// Public routes (no auth required)
+const Trip = require('./models/Trip');
+const User = require('./models/User');
+
+// GET /api/trips/:id/invite — Public invite endpoint for share links
+app.get('/api/trips/:id/invite', async (req, res) => {
+  try {
+    const trip = await Trip.findById(req.params.id)
+      .select('title description startAddress dateTime status creatorId creatorName creatorPhotoUrl attendeeIds ridingStyles difficulty estimatedDistance linkedRouteId maxRiders')
+      .lean();
+
+    if (!trip) {
+      return res.status(404).json({ error: 'Group ride not found' });
+    }
+
+    // Fetch participant display names + photos
+    const allUserIds = [trip.creatorId, ...(trip.attendeeIds || [])];
+    const users = await User.find({ firebaseUid: { $in: allUserIds } })
+      .select('firebaseUid displayName photoUrl')
+      .lean();
+
+    const userMap = {};
+    for (const u of users) {
+      userMap[u.firebaseUid] = { displayName: u.displayName || 'Rider', photoUrl: u.photoUrl || '' };
+    }
+
+    const participants = (trip.attendeeIds || []).map(uid => ({
+      displayName: userMap[uid]?.displayName || 'Rider',
+      photoUrl: userMap[uid]?.photoUrl || ''
+    }));
+
+    res.json({
+      id: trip._id,
+      title: trip.title,
+      description: trip.description,
+      startAddress: trip.startAddress,
+      dateTime: trip.dateTime,
+      status: trip.status,
+      creatorName: trip.creatorName,
+      creatorPhotoUrl: userMap[trip.creatorId]?.photoUrl || trip.creatorPhotoUrl || '',
+      attendeeCount: (trip.attendeeIds || []).length,
+      maxRiders: trip.maxRiders || 0,
+      ridingStyles: trip.ridingStyles || [],
+      difficulty: trip.difficulty,
+      estimatedDistance: trip.estimatedDistance,
+      participants
+    });
+  } catch (error) {
+    console.error('Invite endpoint error:', error);
+    res.status(500).json({ error: 'Failed to load group ride' });
+  }
+});
+
 // Protected routes
 app.use('/api/routes', authMiddleware, routesRouter);
 app.use('/api/rides', authMiddleware, ridesRouter);

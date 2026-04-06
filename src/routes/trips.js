@@ -157,18 +157,15 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/trips/discover - Discover public upcoming group rides
+// GET /api/trips/discover - Discover public upcoming/ongoing group rides
 router.get('/discover', async (req, res) => {
   try {
     const { lat, lng, radiusKm = 100, limit = 50 } = req.query;
     
-    const now = Date.now();
-    
-    // Base query: public, upcoming, in the future
+    // Show public rides that are upcoming or ongoing (hide completed/cancelled)
     let query = {
       isPublic: true,
-      status: 'upcoming',
-      dateTime: { $gte: now }
+      status: { $in: ['upcoming', 'ongoing'] }
     };
     
     let trips;
@@ -198,7 +195,7 @@ router.get('/discover', async (req, res) => {
         }
       ]);
     } else {
-      // No location - just get upcoming rides sorted by date
+      // No location - just get upcoming/ongoing rides sorted by date
       trips = await Trip.find(query)
         .sort({ dateTime: 1 })
         .limit(parseInt(limit))
