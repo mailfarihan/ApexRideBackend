@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const admin = require('firebase-admin');
 const User = require('../models/User');
+const Ride = require('../models/Ride');
+const Trip = require('../models/Trip');
+const Route = require('../models/Route');
+const Telemetry = require('../models/Telemetry');
 const { deleteFromFirebase } = require('../services/mapImage');
 
 // GET /api/users/me - Get current user's profile
@@ -177,6 +181,68 @@ router.post('/:uid/unfollow', async (req, res) => {
   } catch (error) {
     console.error('Unfollow error:', error);
     res.status(500).json({ error: 'Failed to unfollow user' });
+  }
+});
+
+// DELETE /api/users/me - Permanently delete account and all associated data
+router.delete('/me', async (req, res) => {
+  try {
+    const uid = req.user.uid;
+
+    // 1. Delete user's profile photo from Firebase Storage
+    const user = await User.findOne({ firebaseUid: uid });
+    if (user?.photoUrl) {
+      deleteFromFirebase(user.photoUrl).catch(() => {});
+    }
+
+    // 2. Delete all ride map images from Firebase Storage
+    const rides = await Ride.find({ userId: uid }, { mapImageLightUrl: 1, mapImageDarkUrl: 1 });
+    for (const ride of rides) {
+      if (ride.mapImageLightUrl) deleteFromFirebase(ride.mapImageLightUrl).catch(() => {});
+      if (ride.mapImageDarkUrl) deleteFromFirebase(ride.mapImageDarkUrl).catch(() => {});
+    }
+
+    // 3. Delete all route map images from Firebase Storage
+    const routes = await Route.find({ creatorId: uid }, { mapImageLightUrl: 1, mapImageDarkUrl: 1 });
+    for (const route of routes) {
+      if (route.mapImageLightUrl) deleteFromFirebase(route.mapImageLightUrl).catch(() => {});
+      if (route.mapImageDarkUrl) deleteFromFirebase(route.mapImageDarkUrl).catch(() => {});
+    }
+
+    // 4. Cascade delete all user data from MongoDB
+    await Promise.all([
+      Ride.deleteMany({ userId: uid }),
+      Telemetry.deleteMany({ userId: uid }),
+      Route.deleteMany({ creatorId: uid }),
+      Trip.updateMany(
+        { attendeeIds: uid },
+        { $pull: { attendeeIds: uid } }
+      ),
+      Trip.deleteMany({ creatorId: uid }),
+      // Remove user from other users' followers/following lists
+      User.updateMany(
+        { followers: uid },
+        { $pull: { followers: uid } }
+      ),
+      User.updateMany(
+        { following: uid },
+        { $pull: { following: uid } }
+      ),
+      User.deleteOne({ firebaseUid: uid })
+    ]);
+
+    // 5. Delete Firebase Auth account
+    try {
+      await admin.auth().deleteUser(uid);
+    } catch (authErr) {
+      // Auth deletion may fail if already deleted; log but don't block response
+      console.warn('Firebase Auth deletion warning:', authErr.message);
+    }
+
+    res.json({ message: 'Account permanently deleted' });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(500).json({ error: 'Failed to delete account' });
   }
 });
 
