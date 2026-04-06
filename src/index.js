@@ -129,7 +129,7 @@ app.get('/ride', async (req, res) => {
     const dateObj = new Date(trip.dateTime);
     const dateStr = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     const locationLine = trip.startAddress ? `\n📍 ${trip.startAddress}` : '';
-    const ogDescription = `${trip.title}\n📅 ${dateStr}${locationLine}`;
+    const ogDescription = `📅 ${dateStr}${locationLine}`;
 
     const participants = (trip.attendeeIds || []).map(uid => ({
       displayName: userMap[uid]?.displayName || 'Rider',
@@ -148,8 +148,8 @@ app.get('/ride', async (req, res) => {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(trip.title)} — ApexRide Group Ride</title>
-<meta property="og:title" content="ApexRide — Group Ride Invite">
-<meta property="og:description" content="${esc(ogDescription)}">
+<meta property="og:title" content="${esc(trip.title)} — ApexRide">
+<meta property="og:description" content="${esc(ogDescription).replace(/\n/g, '&#10;')}">
 <meta property="og:url" content="https://apexride.dev/ride?id=${esc(rideId)}">
 <meta property="og:image" content="${esc(trip.mapImageDarkUrl || 'https://apexride.dev/images/screenshot-map.jpeg')}">
 <meta property="og:type" content="website">
@@ -254,10 +254,25 @@ var intentUrl = 'intent://group-ride/' + encodeURIComponent(rideId) +
   encodeURIComponent(webFallback) + ';end';
 
 var btn = document.getElementById('open-app-btn');
+var isAndroid = /android/i.test(navigator.userAgent);
+var isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 if (btn) {
-  var isAndroid = /android/i.test(navigator.userAgent);
-  btn.href = isAndroid ? intentUrl : deepLink;
-  if (isAndroid) window.location.href = intentUrl;
+  btn.href = isAndroid ? intentUrl : (isIOS ? deepLink : webFallback);
+}
+
+// Try custom scheme to open app directly (works from WhatsApp in-app browser)
+if (isAndroid) {
+  var launched = false;
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) launched = true;
+  });
+  window.location.href = deepLink;
+  setTimeout(function() {
+    if (!launched) {
+      // App not installed: page stays visible, button falls back to intent://
+    }
+  }, 1500);
 }
 
 // Decode Google encoded polyline
@@ -282,12 +297,20 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 19
 }).addTo(map);
 
+var orangePin = L.divIcon({
+  className: '',
+  html: '<svg width="32" height="42" viewBox="0 0 32 42" xmlns="http://www.w3.org/2000/svg"><path d="M16 0C7.16 0 0 7.16 0 16c0 12 16 26 16 26s16-14 16-26C32 7.16 24.84 0 16 0z" fill="#ff9800" stroke="#e65100" stroke-width="1.5"/><circle cx="16" cy="15" r="6" fill="white"/></svg>',
+  iconSize: [32, 42],
+  iconAnchor: [16, 42]
+});
+
 if (encodedPolyline) {
   var coords = decodePolyline(encodedPolyline);
   var polyline = L.polyline(coords, { color: '#ff9800', weight: 3, opacity: 0.9 }).addTo(map);
+  L.marker(coords[0], { icon: orangePin }).addTo(map);
   map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
 } else if (startLat && startLng) {
-  L.circleMarker([startLat, startLng], { radius: 10, color: '#f57c00', fillColor: '#ff9800', fillOpacity: 1, weight: 2 }).addTo(map);
+  L.marker([startLat, startLng], { icon: orangePin }).addTo(map);
   map.setView([startLat, startLng], 13);
 } else {
   map.setView([0, 0], 2);
