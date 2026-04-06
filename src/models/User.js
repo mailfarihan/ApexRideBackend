@@ -62,6 +62,14 @@ const userSchema = new mongoose.Schema({
     default: Date.now
   },
   
+  // Username: unique handle (e.g. @apex_rider), optional but unique
+  username: {
+    type: String,
+    default: null,
+    sparse: true,  // allows multiple null values while enforcing uniqueness on non-null
+    match: [/^[a-z0-9_]{3,20}$/, 'Username must be 3-20 characters, only lowercase letters, numbers, and underscores']
+  },
+
   // Soft-delete: scheduled deletion date (30 days from request)
   deletionScheduledAt: {
     type: Date,
@@ -82,5 +90,7 @@ userSchema.pre('save', function(next) {
   this.updatedAt = new Date();
   next();
 });
+
+userSchema.index({ username: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('User', userSchema);

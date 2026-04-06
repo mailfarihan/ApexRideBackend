@@ -48,6 +48,25 @@ router.get('/me', async (req, res) => {
   }
 });
 
+// GET /api/users/me/username-check - Check if a username is available
+router.get('/me/username-check', async (req, res) => {
+  try {
+    const { username } = req.query;
+    if (!username) return res.status(400).json({ error: 'username required' });
+
+    const clean = username.toLowerCase().trim();
+    if (!/^[a-z0-9_]{3,20}$/.test(clean)) {
+      return res.json({ available: false, reason: 'Username must be 3-20 characters: lowercase letters, numbers, underscores only' });
+    }
+
+    const existing = await User.findOne({ username: clean });
+    const isOwnUsername = existing?.firebaseUid === req.user.uid;
+    res.json({ available: !existing || isOwnUsername });
+  } catch (error) {
+    res.status(500).json({ error: 'Check failed' });
+  }
+});
+
 // PUT /api/users/me - Update current user's profile
 router.put('/me', async (req, res) => {
   try {
@@ -59,6 +78,24 @@ router.put('/me', async (req, res) => {
         updates[field] = req.body[field];
       }
     });
+
+    // Handle username separately — needs validation + uniqueness check
+    if (req.body.username !== undefined) {
+      const raw = req.body.username;
+      if (raw === null || raw === '') {
+        updates.username = null;
+      } else {
+        const clean = String(raw).toLowerCase().trim();
+        if (!/^[a-z0-9_]{3,20}$/.test(clean)) {
+          return res.status(400).json({ error: 'Username must be 3-20 characters: lowercase letters, numbers, underscores only' });
+        }
+        const conflict = await User.findOne({ username: clean });
+        if (conflict && conflict.firebaseUid !== req.user.uid) {
+          return res.status(409).json({ error: 'Username already taken' });
+        }
+        updates.username = clean;
+      }
+    }
 
     // If photoUrl is changing, delete the old one from Firebase Storage
     if (updates.photoUrl !== undefined) {
@@ -77,6 +114,9 @@ router.put('/me', async (req, res) => {
     
     res.json(user);
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ error: 'Username already taken' });
+    }
     console.error('Update user error:', error);
     res.status(500).json({ error: 'Failed to update user' });
   }

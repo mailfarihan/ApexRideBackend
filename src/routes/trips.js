@@ -163,9 +163,14 @@ router.get('/discover', async (req, res) => {
     const { lat, lng, radiusKm = 100, limit = 50 } = req.query;
     
     // Show public rides that are upcoming or ongoing (hide completed/cancelled)
+    // For upcoming rides, exclude those whose dateTime is more than 1 hour in the past (expired)
+    const oneHourAgo = Date.now() - 3600000;
     let query = {
       isPublic: true,
-      status: { $in: ['upcoming', 'ongoing'] }
+      $or: [
+        { status: 'ongoing' },
+        { status: 'upcoming', dateTime: { $gte: oneHourAgo } }
+      ]
     };
     
     let trips;
