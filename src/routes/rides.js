@@ -185,10 +185,18 @@ router.post('/sync', async (req, res) => {
         }
         
                 // Generate map images synchronously so URLs are returned in the sync response
+        // Regenerate if: no image yet, OR this is a different ride reusing the same localId
+        // (e.g. after account deletion/reinstall — Room auto-increment resets)
+        const isDifferentRide = existingRide && existingRide.startTime !== ride.startTime;
         let mapImageLightUrl = existingRide?.mapImageLightUrl || '';
         let mapImageDarkUrl = existingRide?.mapImageDarkUrl || '';
-        if (hasNewFormat && !existingRide?.mapImageLightUrl) {
+        const needsImageGeneration = hasNewFormat && (!existingRide?.mapImageLightUrl || isDifferentRide);
+        if (needsImageGeneration) {
           try {
+            // Delete stale images from Firebase Storage if this is a localId reuse
+            if (isDifferentRide && existingRide.mapImageLightUrl) {
+              deleteMapImages(existingRide.mapImageLightUrl, existingRide.mapImageDarkUrl).catch(() => {});
+            }
             const urls = await generateMapImages(ride.encodedPolyline, 'ride', ride.mapStyle || {});
             mapImageLightUrl = urls.mapImageLightUrl || '';
             mapImageDarkUrl = urls.mapImageDarkUrl || '';
