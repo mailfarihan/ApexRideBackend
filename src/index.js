@@ -345,6 +345,7 @@ app.use((err, req, res, next) => {
 // Connect to MongoDB and start server
 const PORT = process.env.PORT || 3000;
 const purgeDeletedAccounts = require('./cron/purgeDeletedAccounts');
+const autoCompleteStaleGroupRides = require('./cron/autoCompleteStaleGroupRides');
 
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => {
@@ -356,6 +357,10 @@ mongoose.connect(process.env.MONGODB_URI)
     // Run purge job once on startup, then every 24 hours
     purgeDeletedAccounts();
     setInterval(purgeDeletedAccounts, 24 * 60 * 60 * 1000);
+
+    // Sweep stale ongoing group rides on startup, then every 30 minutes
+    autoCompleteStaleGroupRides();
+    setInterval(autoCompleteStaleGroupRides, 30 * 60 * 1000);
   })
   .catch(err => {
     console.error('❌ MongoDB connection error:', err.message);

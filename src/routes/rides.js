@@ -107,11 +107,18 @@ router.post('/sync', async (req, res) => {
         if (ride.groupRideId) {
           updateDoc.groupRideId = ride.groupRideId;
         } else if (ride.startTime) {
-          // Fallback auto-link: only match ONGOING group rides (not completed).
-          // This prevents solo rides after the group ride from being linked.
-          // The ride must overlap with the group ride's active window.
+          // Fallback auto-link: only match ONGOING group rides (not completed)
+          // AND gate by proximity/time so a later, unrelated ride (e.g. user
+          // got home, then rode again hours later while the creator forgot to
+          // end the group ride) does not get mis-linked.
+          //
+          // Required:
+          //   - ride.startTime within AUTO_LINK_MAX_AGE_MS of trip.actualStartTime/dateTime
+          //   - ride.startLat/lng within AUTO_LINK_MAX_DIST_M of trip.startLocation
           try {
-            const matchingTrip = await Trip.findOne({
+            const AUTO_LINK_MAX_AGE_MS = 4 * 60 * 60 * 1000; // 4 hours
+            const AUTO_LINK_MAX_DIST_M = 5000;               // 5 km
+            const candidates = await Trip.find({
               attendeeIds: req.user.uid,
               status: 'ongoing',
               $or: [
@@ -119,6 +126,33 @@ router.post('/sync', async (req, res) => {
                 { dateTime: { $lte: ride.startTime } }
               ]
             }).lean();
+
+            const haversineM = (lat1, lng1, lat2, lng2) => {
+              const R = 6371000;
+              const toRad = (d) => (d * Math.PI) / 180;
+              const dLat = toRad(lat2 - lat1);
+              const dLng = toRad(lng2 - lng1);
+              const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+              return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+            };
+
+            let matchingTrip = null;
+            for (const trip of candidates) {
+              const tripStart = trip.actualStartTime || trip.dateTime;
+              if (!tripStart) continue;
+              if (ride.startTime - tripStart > AUTO_LINK_MAX_AGE_MS) continue;
+              const tripCoords = trip.startLocation && trip.startLocation.coordinates;
+              if (tripCoords && tripCoords.length === 2 &&
+                  typeof ride.startLat === 'number' && typeof ride.startLng === 'number') {
+                const dist = haversineM(ride.startLat, ride.startLng, tripCoords[1], tripCoords[0]);
+                if (dist > AUTO_LINK_MAX_DIST_M) continue;
+              }
+              // Tie-break: pick the trip whose start is closest in time to ride.startTime
+              if (!matchingTrip || tripStart > (matchingTrip.actualStartTime || matchingTrip.dateTime)) {
+                matchingTrip = trip;
+              }
+            }
             if (matchingTrip) {
               updateDoc.groupRideId = matchingTrip._id;
             }

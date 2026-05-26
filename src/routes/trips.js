@@ -6,6 +6,7 @@ const Telemetry = require('../models/Telemetry');
 const Route = require('../models/Route');
 const User = require('../models/User');
 const { generateMapImages, generateMapImagesForPoint, copyMapImages, deleteMapImages, generateMapImagesMultiPath } = require('../services/mapImage');
+const { buildGroupRideTrim } = require('../services/groupRideTrim');
 
 // In-memory store for member location pings (ephemeral, no need to persist)
 // Key: tripId, Value: Map<userId, { lat, lng, timestamp, displayName }>
@@ -949,6 +950,27 @@ router.get('/:id/detail', async (req, res) => {
       userPhotoMap[u.firebaseUid] = u.photoUrl || '';
     });
 
+    // Compute group-view fork trim + session clustering server-side so all
+    // clients render a consistent view. See services/groupRideTrim.js.
+    const ridesForTrim = rides.map(r => ({
+      _id: r._id,
+      userId: r.userId,
+      startTime: r.startTime,
+      endTime: r.endTime,
+      duration: r.duration,
+      distance: r.distance,
+      avgSpeed: r.avgSpeed,
+      encodedPolyline: r.encodedPolyline || ''
+    }));
+    let trimResult;
+    try {
+      trimResult = buildGroupRideTrim(ridesForTrim, telemetries);
+    } catch (trimErr) {
+      console.error('Group ride trim failed:', trimErr.message);
+      trimResult = { sessions: [], perRide: {} };
+    }
+    const trimPerRide = trimResult.perRide || {};
+
     // Build response
     res.json({
       ...trip,
@@ -960,34 +982,53 @@ router.get('/:id/detail', async (req, res) => {
         displayName: userNameMap[uid] || 'Rider',
         photoUrl: userPhotoMap[uid] || ''
       })),
-      rides: rides.map(r => ({
-        _id: r._id,
-        userId: r.userId,
-        displayName: userNameMap[r.userId] || 'Rider',
-        distance: r.distance || 0,
-        duration: r.duration || 0,
-        avgSpeed: r.avgSpeed || 0,
-        maxSpeed: r.maxSpeed || 0,
-        maxLeanAngle: r.maxLeanAngle || 0,
-        maxGForce: r.maxGForce || 0,
-        startTime: r.startTime,
-        endTime: r.endTime,
-        encodedPolyline: r.encodedPolyline || '',
-        mapImageLightUrl: r.mapImageLightUrl || '',
-        mapImageDarkUrl: r.mapImageDarkUrl || '',
-        startAddress: r.startAddress || '',
-        endAddress: r.endAddress || ''
-      })),
-      telemetry: telemetries.map(t => ({
-        userId: t.userId,
-        rideId: t.rideId,
-        displayName: userNameMap[t.userId] || 'Rider',
-        speed: t.speed,
-        gForce: t.gForce,
-        leanAngle: t.leanAngle,
-        timestamp: t.timestamp,
-        cumDistanceM: t.cumDistanceM
-      }))
+      sessions: trimResult.sessions || [],
+      rides: rides.map(r => {
+        const trim = trimPerRide[String(r._id)] || {};
+        return {
+          _id: r._id,
+          userId: r.userId,
+          displayName: userNameMap[r.userId] || 'Rider',
+          distance: r.distance || 0,
+          duration: r.duration || 0,
+          avgSpeed: r.avgSpeed || 0,
+          maxSpeed: r.maxSpeed || 0,
+          maxLeanAngle: r.maxLeanAngle || 0,
+          maxGForce: r.maxGForce || 0,
+          startTime: r.startTime,
+          endTime: r.endTime,
+          encodedPolyline: r.encodedPolyline || '',
+          // Group-view (fork-trimmed) polyline. Falls back to encodedPolyline when no fork detected.
+          groupEncodedPolyline: trim.groupEncodedPolyline || r.encodedPolyline || '',
+          groupForkCutoffMs: trim.cutoffMs ?? null,
+          sessionNumber: trim.sessionNumber ?? null,
+          mapImageLightUrl: r.mapImageLightUrl || '',
+          mapImageDarkUrl: r.mapImageDarkUrl || '',
+          startAddress: r.startAddress || '',
+          endAddress: r.endAddress || ''
+        };
+      }),
+      telemetry: telemetries.map(t => {
+        const trim = trimPerRide[String(t.rideId)] || {};
+        const groupTele = trim.groupTelemetry || t;
+        return {
+          userId: t.userId,
+          rideId: t.rideId,
+          displayName: userNameMap[t.userId] || 'Rider',
+          // Full telemetry for individual ride context
+          speed: t.speed,
+          gForce: t.gForce,
+          leanAngle: t.leanAngle,
+          timestamp: t.timestamp,
+          cumDistanceM: t.cumDistanceM,
+          // Group-view (fork-trimmed) telemetry
+          groupSpeed: groupTele.speed,
+          groupGForce: groupTele.gForce,
+          groupLeanAngle: groupTele.leanAngle,
+          groupTimestamp: groupTele.timestamp,
+          groupCumDistanceM: groupTele.cumDistanceM
+        };
+      })
     });
   } catch (error) {
     console.error('Get group ride detail error:', error);
