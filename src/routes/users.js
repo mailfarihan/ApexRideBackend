@@ -128,6 +128,37 @@ router.put('/me', async (req, res) => {
   }
 });
 
+// POST /api/users/me/location - Update caller's last known location (auto-shared with circles)
+router.post('/me/location', async (req, res) => {
+  try {
+    const { lat, lng, isLive } = req.body || {};
+    const latN = Number(lat);
+    const lngN = Number(lng);
+    if (!Number.isFinite(latN) || !Number.isFinite(lngN)) {
+      return res.status(400).json({ error: 'lat/lng required' });
+    }
+    if (latN < -90 || latN > 90 || lngN < -180 || lngN > 180) {
+      return res.status(400).json({ error: 'lat/lng out of range' });
+    }
+    await User.updateOne(
+      { firebaseUid: req.user.uid },
+      {
+        $set: {
+          'lastLocation.lat': latN,
+          'lastLocation.lng': lngN,
+          'lastLocation.ts': new Date(),
+          'lastLocation.isLive': Boolean(isLive)
+        }
+      },
+      { upsert: false }
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Update location error:', error);
+    res.status(500).json({ error: 'Failed to update location' });
+  }
+});
+
 // PUT /api/users/me/photo - Update profile photo URL
 router.put('/me/photo', async (req, res) => {
   try {

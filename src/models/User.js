@@ -60,7 +60,15 @@ const userSchema = new mongoose.Schema({
   },
   followRequests: [{ type: String }],   // Incoming UIDs (requested to follow me)
   pendingFollows: [{ type: String }],   // Outgoing UIDs (I requested to follow them)
-  
+
+  // Last known location (auto-shared with circle members)
+  lastLocation: {
+    lat: { type: Number, default: null },
+    lng: { type: Number, default: null },
+    ts: { type: Date, default: null },
+    isLive: { type: Boolean, default: false }
+  },
+
   createdAt: {
     type: Date,
     default: Date.now

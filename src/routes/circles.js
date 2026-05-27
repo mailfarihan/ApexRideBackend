@@ -11,17 +11,25 @@ async function hydrate(circle, callerUid) {
   const users = memberUids.length === 0
     ? []
     : await User.find({ firebaseUid: { $in: memberUids } })
-        .select('firebaseUid displayName username photoUrl')
+        .select('firebaseUid displayName username photoUrl lastLocation')
         .lean();
   const byUid = Object.fromEntries(users.map(u => [u.firebaseUid, u]));
 
   const decorate = (uid) => {
     const u = byUid[uid];
+    const loc = u?.lastLocation;
+    const hasLoc = loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng);
     return {
       uid,
       displayName: u?.displayName || 'Rider',
       username: u?.username || null,
-      photoUrl: u?.photoUrl || null
+      photoUrl: u?.photoUrl || null,
+      lastLocation: hasLoc ? {
+        lat: loc.lat,
+        lng: loc.lng,
+        ts: loc.ts ? new Date(loc.ts).getTime() : 0,
+        isLive: Boolean(loc.isLive)
+      } : null
     };
   };
 
