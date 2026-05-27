@@ -36,6 +36,8 @@ const telemetryRouter = require('./routes/telemetry');
 const circlesRouter = require('./routes/circles');
 const liveRouter = require('./routes/live');
 const liveShare = require('./socket/liveShare');
+const garageRouter = require('./routes/garage');
+const catalogRouter = require('./routes/vehicleCatalog');
 
 // Auth routes (no middleware - used for sign-in sync)
 
@@ -341,6 +343,8 @@ app.use('/api/users', authMiddleware, usersRouter);
 app.use('/api/telemetry', authMiddleware, telemetryRouter);
 app.use('/api/circles', authMiddleware, circlesRouter);
 app.use('/api/live', authMiddleware, liveRouter);
+app.use('/api/garage', authMiddleware, garageRouter);
+app.use('/api/catalog', authMiddleware, catalogRouter);
 
 // Error handler
 app.use((err, req, res, next) => {
