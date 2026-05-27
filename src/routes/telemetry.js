@@ -1,14 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const Telemetry = require('../models/Telemetry');
+const { canAccessRide } = require('../middleware/rideAccess');
 
 // GET /api/telemetry/:rideId — Lazy-load telemetry for a single ride
 router.get('/:rideId', async (req, res) => {
   try {
-    const telemetry = await Telemetry.findOne({
-      rideId: req.params.rideId,
-      userId: req.user.uid
-    }).lean();
+    const ride = await canAccessRide(req.user.uid, req.params.rideId);
+    if (!ride) return res.status(403).json({ error: 'No access to this ride' });
+
+    const telemetry = await Telemetry.findOne({ rideId: req.params.rideId }).lean();
 
     if (!telemetry) {
       return res.status(404).json({ error: 'Telemetry not found' });

@@ -164,22 +164,154 @@ router.put('/me/photo', async (req, res) => {
   }
 });
 
-// GET /api/users/:uid - Get another user's public profile
+// GET /api/users/search?q=... - Prefix-match search across displayName + username
+// Returns up to 20 users, each tagged with isFollowing for the caller.
+router.get('/search', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 1) return res.json([]);
+
+    // Escape user input for safe regex usage
+    const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const prefix = new RegExp('^' + esc, 'i');
+
+    const me = await User.findOne({ firebaseUid: req.user.uid }).select('following').lean();
+    const followingSet = new Set(me?.following || []);
+
+    const matches = await User.find({
+      firebaseUid: { $ne: req.user.uid },
+      deletionScheduledAt: null,
+      $or: [
+        { displayName: prefix },
+        { username: prefix }
+      ]
+    })
+      .select('firebaseUid displayName username photoUrl')
+      .limit(20)
+      .lean();
+
+    res.json(matches.map(u => ({
+      uid: u.firebaseUid,
+      firebaseUid: u.firebaseUid,
+      displayName: u.displayName || 'Rider',
+      username: u.username || null,
+      photoUrl: u.photoUrl || null,
+      isFollowing: followingSet.has(u.firebaseUid)
+    })));
+  } catch (error) {
+    console.error('Search users error:', error);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// GET /api/users/:uid - Get another user's public profile (+ social counts + isFollowing)
 router.get('/:uid', async (req, res) => {
   try {
     const user = await User.findOne(
       { firebaseUid: req.params.uid },
       { email: 0, preferences: 0 } // Exclude private fields
-    );
-    
-    if (!user) {
+    ).lean();
+
+    if (!user || user.deletionScheduledAt) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
-    res.json(user);
+
+    const me = await User.findOne({ firebaseUid: req.user.uid }).select('following').lean();
+    const isFollowing = (me?.following || []).includes(user.firebaseUid);
+
+    res.json({
+      ...user,
+      uid: user.firebaseUid,
+      followerCount: (user.followers || []).length,
+      followingCount: (user.following || []).length,
+      isFollowing,
+      isSelf: user.firebaseUid === req.user.uid,
+      // Hide raw follower/following arrays from the public payload
+      followers: undefined,
+      following: undefined
+    });
   } catch (error) {
     console.error('Get user error:', error);
     res.status(500).json({ error: 'Failed to get user' });
+  }
+});
+
+// GET /api/users/:uid/rides?public=true - Public rides for non-owner; full list for owner
+router.get('/:uid/rides', async (req, res) => {
+  try {
+    const isOwner = req.params.uid === req.user.uid;
+    const publicOnly = !isOwner || req.query.public === 'true';
+
+    const filter = { userId: req.params.uid };
+    if (publicOnly) filter.isPublic = true;
+
+    const rides = await Ride.find(filter)
+      .sort({ startTime: -1 })
+      .limit(100)
+      .select('-routePointsJson -eventsJson -telemetry -samples')
+      .lean();
+
+    res.json(rides);
+  } catch (error) {
+    console.error('Get user rides error:', error);
+    res.status(500).json({ error: 'Failed to get rides' });
+  }
+});
+
+// Helper: paginate a list of UIDs into user previews tagged with isFollowing
+async function fetchUserPreviews(uids, callerUid, page, limit) {
+  const start = Math.max(0, (page - 1) * limit);
+  const slice = uids.slice(start, start + limit);
+  if (slice.length === 0) return { items: [], total: uids.length, page, limit };
+
+  const me = await User.findOne({ firebaseUid: callerUid }).select('following').lean();
+  const followingSet = new Set(me?.following || []);
+
+  const users = await User.find({ firebaseUid: { $in: slice } })
+    .select('firebaseUid displayName username photoUrl')
+    .lean();
+  const byUid = Object.fromEntries(users.map(u => [u.firebaseUid, u]));
+
+  const items = slice
+    .map(uid => byUid[uid])
+    .filter(Boolean)
+    .map(u => ({
+      uid: u.firebaseUid,
+      firebaseUid: u.firebaseUid,
+      displayName: u.displayName || 'Rider',
+      username: u.username || null,
+      photoUrl: u.photoUrl || null,
+      isFollowing: followingSet.has(u.firebaseUid)
+    }));
+
+  return { items, total: uids.length, page, limit };
+}
+
+// GET /api/users/:uid/followers?page=1&limit=30
+router.get('/:uid/followers', async (req, res) => {
+  try {
+    const target = await User.findOne({ firebaseUid: req.params.uid }).select('followers').lean();
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 30));
+    res.json(await fetchUserPreviews(target.followers || [], req.user.uid, page, limit));
+  } catch (error) {
+    console.error('Get followers error:', error);
+    res.status(500).json({ error: 'Failed to get followers' });
+  }
+});
+
+// GET /api/users/:uid/following?page=1&limit=30
+router.get('/:uid/following', async (req, res) => {
+  try {
+    const target = await User.findOne({ firebaseUid: req.params.uid }).select('following').lean();
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 30));
+    res.json(await fetchUserPreviews(target.following || [], req.user.uid, page, limit));
+  } catch (error) {
+    console.error('Get following error:', error);
+    res.status(500).json({ error: 'Failed to get following' });
   }
 });
 
@@ -211,27 +343,29 @@ router.post('/:uid/follow', async (req, res) => {
   }
 });
 
-// POST /api/users/:uid/unfollow - Unfollow a user
-router.post('/:uid/unfollow', async (req, res) => {
+// Internal unfollow handler (shared by POST .../unfollow and DELETE .../follow)
+async function unfollowHandler(req, res) {
   try {
-    // Remove from current user's following
     await User.findOneAndUpdate(
       { firebaseUid: req.user.uid },
       { $pull: { following: req.params.uid } }
     );
-    
-    // Remove from target user's followers
     await User.findOneAndUpdate(
       { firebaseUid: req.params.uid },
       { $pull: { followers: req.user.uid } }
     );
-    
     res.json({ message: 'Unfollowed user' });
   } catch (error) {
     console.error('Unfollow error:', error);
     res.status(500).json({ error: 'Failed to unfollow user' });
   }
-});
+}
+
+// POST /api/users/:uid/unfollow - Unfollow a user (legacy path)
+router.post('/:uid/unfollow', unfollowHandler);
+
+// DELETE /api/users/:uid/follow - Unfollow a user (REST-y alias)
+router.delete('/:uid/follow', unfollowHandler);
 
 // DELETE /api/users/me - Schedule account for deletion (30-day grace period)
 router.delete('/me', async (req, res) => {

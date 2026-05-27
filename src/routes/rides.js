@@ -4,6 +4,7 @@ const Ride = require('../models/Ride');
 const Telemetry = require('../models/Telemetry');
 const Trip = require('../models/Trip');
 const { generateMapImages, deleteMapImages } = require('../services/mapImage');
+const { canAccessRide, autoShareRide } = require('../middleware/rideAccess');
 
 // GET /api/rides - Get user's synced rides
 router.get('/', async (req, res) => {
@@ -249,6 +250,11 @@ router.post('/sync', async (req, res) => {
           mapImageLightUrl,
           mapImageDarkUrl
         });
+
+        // Auto-share to every circle the rider belongs to (fire-and-forget)
+        if (ride.endTime) {
+          autoShareRide(result._id, req.user.uid).catch(err => console.error('autoShareRide error:', err.message));
+        }
       } catch (err) {
         results.push({
           localId: ride.localId,
@@ -368,6 +374,11 @@ router.post('/', async (req, res) => {
       mapImageDarkUrl,
       message: 'Ride synced' 
     });
+
+    // Auto-share to every circle the rider belongs to (fire-and-forget)
+    if (ride.endTime) {
+      autoShareRide(result._id, req.user.uid).catch(err => console.error('autoShareRide error:', err.message));
+    }
   } catch (error) {
     console.error('Sync ride error:', error);
     res.status(500).json({ error: 'Failed to sync ride' });
@@ -427,6 +438,22 @@ router.put('/:localId', async (req, res) => {
   } catch (error) {
     console.error('Update ride error:', error);
     res.status(500).json({ error: 'Failed to update ride' });
+  }
+});
+
+// GET /api/rides/by-id/:rideId - Fetch a single ride by its Mongo _id.
+// Access: owner, OR any user with a matching RideShare (direct or via circle).
+router.get('/by-id/:rideId', async (req, res) => {
+  try {
+    const ride = await canAccessRide(req.user.uid, req.params.rideId);
+    if (!ride) return res.status(403).json({ error: 'No access to this ride' });
+    res.json({
+      ...ride,
+      isOwner: ride.userId === req.user.uid
+    });
+  } catch (error) {
+    console.error('Get ride error:', error);
+    res.status(500).json({ error: 'Failed to get ride' });
   }
 });
 
