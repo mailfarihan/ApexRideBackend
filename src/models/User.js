@@ -52,6 +52,14 @@ const userSchema = new mongoose.Schema({
   // Social
   followers: [{ type: String }],  // Firebase UIDs
   following: [{ type: String }],  // Firebase UIDs
+
+  // Privacy: when true, follows require approval (followRequests/pendingFollows)
+  isPrivate: {
+    type: Boolean,
+    default: false
+  },
+  followRequests: [{ type: String }],   // Incoming UIDs (requested to follow me)
+  pendingFollows: [{ type: String }],   // Outgoing UIDs (I requested to follow them)
   
   createdAt: {
     type: Date,

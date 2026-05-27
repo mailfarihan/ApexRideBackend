@@ -40,8 +40,14 @@ router.get('/me', async (req, res) => {
       user.deletionFeedback = null;
       await user.save();
     }
-    
-    res.json(user);
+
+    // Augment with social counts for the self view
+    const obj = user.toObject();
+    obj.followerCount = (user.followers || []).length;
+    obj.followingCount = (user.following || []).length;
+    obj.followRequestCount = (user.followRequests || []).length;
+    obj.pendingFollowCount = (user.pendingFollows || []).length;
+    res.json(obj);
   } catch (error) {
     console.error('Get user error:', error);
     res.status(500).json({ error: 'Failed to get user' });
@@ -71,7 +77,7 @@ router.get('/me/username-check', async (req, res) => {
 router.put('/me', async (req, res) => {
   try {
     const updates = {};
-    const allowedFields = ['displayName', 'bio', 'photoUrl', 'motorcycle', 'preferences'];
+    const allowedFields = ['displayName', 'bio', 'photoUrl', 'motorcycle', 'preferences', 'isPrivate'];
     
     allowedFields.forEach(field => {
       if (req.body[field] !== undefined) {
@@ -175,8 +181,9 @@ router.get('/search', async (req, res) => {
     const esc = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const prefix = new RegExp('^' + esc, 'i');
 
-    const me = await User.findOne({ firebaseUid: req.user.uid }).select('following').lean();
+    const me = await User.findOne({ firebaseUid: req.user.uid }).select('following pendingFollows').lean();
     const followingSet = new Set(me?.following || []);
+    const pendingSet = new Set(me?.pendingFollows || []);
 
     const matches = await User.find({
       firebaseUid: { $ne: req.user.uid },
@@ -196,11 +203,72 @@ router.get('/search', async (req, res) => {
       displayName: u.displayName || 'Rider',
       username: u.username || null,
       photoUrl: u.photoUrl || null,
-      isFollowing: followingSet.has(u.firebaseUid)
+      isFollowing: followingSet.has(u.firebaseUid),
+      followStatus: followingSet.has(u.firebaseUid)
+        ? 'following'
+        : (pendingSet.has(u.firebaseUid) ? 'requested' : 'none')
     })));
   } catch (error) {
     console.error('Search users error:', error);
     res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// GET /api/users/me/follow-requests - Incoming follow requests for caller
+router.get('/me/follow-requests', async (req, res) => {
+  try {
+    const me = await User.findOne({ firebaseUid: req.user.uid }).select('followRequests').lean();
+    const uids = me?.followRequests || [];
+    const result = await fetchUserPreviews(uids, req.user.uid, 1, 200);
+    res.json(result);
+  } catch (error) {
+    console.error('Get follow requests error:', error);
+    res.status(500).json({ error: 'Failed to get follow requests' });
+  }
+});
+
+// GET /api/users/me/connections?q=... - Union of caller's followers + following,
+// optionally filtered by prefix. Source of invitable users for circles.
+router.get('/me/connections', async (req, res) => {
+  try {
+    const me = await User.findOne({ firebaseUid: req.user.uid })
+      .select('followers following')
+      .lean();
+    if (!me) return res.json([]);
+
+    const set = new Set([...(me.followers || []), ...(me.following || [])]);
+    set.delete(req.user.uid);
+    if (set.size === 0) return res.json([]);
+
+    const q = (req.query.q || '').toString().trim();
+    const baseFilter = {
+      firebaseUid: { $in: Array.from(set) },
+      deletionScheduledAt: null
+    };
+    if (q.length > 0) {
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const rx = new RegExp('^' + escaped, 'i');
+      baseFilter.$or = [{ displayName: rx }, { username: rx }];
+    }
+
+    const users = await User.find(baseFilter)
+      .select('firebaseUid displayName username photoUrl')
+      .limit(50)
+      .lean();
+
+    const followingSet = new Set(me.following || []);
+    res.json(users.map(u => ({
+      uid: u.firebaseUid,
+      firebaseUid: u.firebaseUid,
+      displayName: u.displayName || 'Rider',
+      username: u.username || null,
+      photoUrl: u.photoUrl || null,
+      isFollowing: followingSet.has(u.firebaseUid),
+      followStatus: followingSet.has(u.firebaseUid) ? 'following' : 'none'
+    })));
+  } catch (error) {
+    console.error('Get connections error:', error);
+    res.status(500).json({ error: 'Failed to get connections' });
   }
 });
 
@@ -216,8 +284,17 @@ router.get('/:uid', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const me = await User.findOne({ firebaseUid: req.user.uid }).select('following').lean();
-    const isFollowing = (me?.following || []).includes(user.firebaseUid);
+    const me = await User.findOne({ firebaseUid: req.user.uid })
+      .select('following pendingFollows followRequests').lean();
+    const followingList = me?.following || [];
+    const pendingList = me?.pendingFollows || [];
+    const incomingList = me?.followRequests || [];
+    const isSelf = user.firebaseUid === req.user.uid;
+    const isFollowing = followingList.includes(user.firebaseUid);
+    const isRequested = pendingList.includes(user.firebaseUid);
+    const followStatus = isSelf
+      ? 'self'
+      : (isFollowing ? 'following' : (isRequested ? 'requested' : 'none'));
 
     res.json({
       ...user,
@@ -225,10 +302,15 @@ router.get('/:uid', async (req, res) => {
       followerCount: (user.followers || []).length,
       followingCount: (user.following || []).length,
       isFollowing,
-      isSelf: user.firebaseUid === req.user.uid,
-      // Hide raw follower/following arrays from the public payload
+      followStatus,
+      isPrivate: !!user.isPrivate,
+      // Whether the caller has an incoming request from this profile (i.e. this user wants to follow me)
+      hasIncomingRequest: incomingList.includes(user.firebaseUid),
+      isSelf,
       followers: undefined,
-      following: undefined
+      following: undefined,
+      followRequests: undefined,
+      pendingFollows: undefined
     });
   } catch (error) {
     console.error('Get user error:', error);
@@ -258,14 +340,15 @@ router.get('/:uid/rides', async (req, res) => {
   }
 });
 
-// Helper: paginate a list of UIDs into user previews tagged with isFollowing
+// Helper: paginate a list of UIDs into user previews tagged with followStatus
 async function fetchUserPreviews(uids, callerUid, page, limit) {
   const start = Math.max(0, (page - 1) * limit);
   const slice = uids.slice(start, start + limit);
   if (slice.length === 0) return { items: [], total: uids.length, page, limit };
 
-  const me = await User.findOne({ firebaseUid: callerUid }).select('following').lean();
+  const me = await User.findOne({ firebaseUid: callerUid }).select('following pendingFollows').lean();
   const followingSet = new Set(me?.following || []);
+  const pendingSet = new Set(me?.pendingFollows || []);
 
   const users = await User.find({ firebaseUid: { $in: slice } })
     .select('firebaseUid displayName username photoUrl')
@@ -281,7 +364,12 @@ async function fetchUserPreviews(uids, callerUid, page, limit) {
       displayName: u.displayName || 'Rider',
       username: u.username || null,
       photoUrl: u.photoUrl || null,
-      isFollowing: followingSet.has(u.firebaseUid)
+      isFollowing: followingSet.has(u.firebaseUid),
+      followStatus: u.firebaseUid === callerUid
+        ? 'self'
+        : (followingSet.has(u.firebaseUid)
+            ? 'following'
+            : (pendingSet.has(u.firebaseUid) ? 'requested' : 'none'))
     }));
 
   return { items, total: uids.length, page, limit };
@@ -315,57 +403,133 @@ router.get('/:uid/following', async (req, res) => {
   }
 });
 
-// POST /api/users/:uid/follow - Follow a user
+// POST /api/users/:uid/follow - Follow a user (or send a request if target is private)
 router.post('/:uid/follow', async (req, res) => {
   try {
     if (req.params.uid === req.user.uid) {
       return res.status(400).json({ error: 'Cannot follow yourself' });
     }
-    
-    // Add to current user's following
+
+    const target = await User.findOne({ firebaseUid: req.params.uid }).select('isPrivate followers').lean();
+    if (!target) return res.status(404).json({ error: 'User not found' });
+
+    const alreadyFollower = (target.followers || []).includes(req.user.uid);
+
+    if (target.isPrivate && !alreadyFollower) {
+      // Private target — store as pending request instead of following directly
+      await User.findOneAndUpdate(
+        { firebaseUid: req.user.uid },
+        { $addToSet: { pendingFollows: req.params.uid } },
+        { upsert: true }
+      );
+      await User.findOneAndUpdate(
+        { firebaseUid: req.params.uid },
+        { $addToSet: { followRequests: req.user.uid } }
+      );
+      return res.json({ status: 'requested', message: 'Follow request sent' });
+    }
+
+    // Public target — follow directly
     await User.findOneAndUpdate(
       { firebaseUid: req.user.uid },
-      { $addToSet: { following: req.params.uid } },
+      {
+        $addToSet: { following: req.params.uid },
+        $pull: { pendingFollows: req.params.uid }
+      },
       { upsert: true }
     );
-    
-    // Add to target user's followers
     await User.findOneAndUpdate(
       { firebaseUid: req.params.uid },
-      { $addToSet: { followers: req.user.uid } },
-      { upsert: true }
+      {
+        $addToSet: { followers: req.user.uid },
+        $pull: { followRequests: req.user.uid }
+      }
     );
-    
-    res.json({ message: 'Followed user' });
+
+    res.json({ status: 'following', message: 'Followed user' });
   } catch (error) {
     console.error('Follow error:', error);
     res.status(500).json({ error: 'Failed to follow user' });
   }
 });
 
-// Internal unfollow handler (shared by POST .../unfollow and DELETE .../follow)
+// Internal unfollow / cancel-request handler
 async function unfollowHandler(req, res) {
   try {
     await User.findOneAndUpdate(
       { firebaseUid: req.user.uid },
-      { $pull: { following: req.params.uid } }
+      { $pull: { following: req.params.uid, pendingFollows: req.params.uid } }
     );
     await User.findOneAndUpdate(
       { firebaseUid: req.params.uid },
-      { $pull: { followers: req.user.uid } }
+      { $pull: { followers: req.user.uid, followRequests: req.user.uid } }
     );
-    res.json({ message: 'Unfollowed user' });
+    res.json({ status: 'none', message: 'Unfollowed user' });
   } catch (error) {
     console.error('Unfollow error:', error);
     res.status(500).json({ error: 'Failed to unfollow user' });
   }
 }
 
-// POST /api/users/:uid/unfollow - Unfollow a user (legacy path)
+// POST /api/users/:uid/unfollow - Unfollow / cancel request (legacy path)
 router.post('/:uid/unfollow', unfollowHandler);
 
-// DELETE /api/users/:uid/follow - Unfollow a user (REST-y alias)
+// DELETE /api/users/:uid/follow - Unfollow / cancel request (REST-y alias)
 router.delete('/:uid/follow', unfollowHandler);
+
+// POST /api/users/:uid/follow-request/accept - Caller (B) accepts request from A (=:uid)
+router.post('/:uid/follow-request/accept', async (req, res) => {
+  try {
+    const requesterUid = req.params.uid;
+    if (requesterUid === req.user.uid) {
+      return res.status(400).json({ error: 'Invalid request' });
+    }
+
+    const me = await User.findOne({ firebaseUid: req.user.uid }).select('followRequests').lean();
+    if (!(me?.followRequests || []).includes(requesterUid)) {
+      return res.status(404).json({ error: 'No pending request from this user' });
+    }
+
+    await User.findOneAndUpdate(
+      { firebaseUid: req.user.uid },
+      {
+        $addToSet: { followers: requesterUid },
+        $pull: { followRequests: requesterUid }
+      }
+    );
+    await User.findOneAndUpdate(
+      { firebaseUid: requesterUid },
+      {
+        $addToSet: { following: req.user.uid },
+        $pull: { pendingFollows: req.user.uid }
+      }
+    );
+
+    res.json({ message: 'Follow request accepted' });
+  } catch (error) {
+    console.error('Accept follow request error:', error);
+    res.status(500).json({ error: 'Failed to accept follow request' });
+  }
+});
+
+// POST /api/users/:uid/follow-request/decline - Caller (B) declines request from A (=:uid)
+router.post('/:uid/follow-request/decline', async (req, res) => {
+  try {
+    const requesterUid = req.params.uid;
+    await User.findOneAndUpdate(
+      { firebaseUid: req.user.uid },
+      { $pull: { followRequests: requesterUid } }
+    );
+    await User.findOneAndUpdate(
+      { firebaseUid: requesterUid },
+      { $pull: { pendingFollows: req.user.uid } }
+    );
+    res.json({ message: 'Follow request declined' });
+  } catch (error) {
+    console.error('Decline follow request error:', error);
+    res.status(500).json({ error: 'Failed to decline follow request' });
+  }
+});
 
 // DELETE /api/users/me - Schedule account for deletion (30-day grace period)
 router.delete('/me', async (req, res) => {

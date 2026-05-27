@@ -158,6 +158,15 @@ router.post('/:id/invite', async (req, res) => {
     const target = await User.findOne({ firebaseUid: userId }).select('firebaseUid').lean();
     if (!target) return res.status(404).json({ error: 'User not found' });
 
+    // Connection gate: target must be in caller's followers ∪ following
+    const caller = await User.findOne({ firebaseUid: req.user.uid })
+      .select('followers following').lean();
+    const isConnection = (caller?.followers || []).includes(userId)
+      || (caller?.following || []).includes(userId);
+    if (!isConnection) {
+      return res.status(403).json({ error: 'You can only invite riders you follow or who follow you' });
+    }
+
     circle.pendingInvites.push({ userId, invitedBy: req.user.uid });
     await circle.save();
     res.json(await hydrate(circle.toObject(), req.user.uid));
