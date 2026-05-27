@@ -1,4 +1,5 @@
 require('dotenv').config();
+const http = require('http');
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -33,6 +34,8 @@ const tripsRouter = require('./routes/trips');
 const usersRouter = require('./routes/users');
 const telemetryRouter = require('./routes/telemetry');
 const circlesRouter = require('./routes/circles');
+const liveRouter = require('./routes/live');
+const liveShare = require('./socket/liveShare');
 
 // Auth routes (no middleware - used for sign-in sync)
 
@@ -337,6 +340,7 @@ app.use('/api/trips', authMiddleware, tripsRouter);
 app.use('/api/users', authMiddleware, usersRouter);
 app.use('/api/telemetry', authMiddleware, telemetryRouter);
 app.use('/api/circles', authMiddleware, circlesRouter);
+app.use('/api/live', authMiddleware, liveRouter);
 
 // Error handler
 app.use((err, req, res, next) => {
@@ -349,11 +353,14 @@ const PORT = process.env.PORT || 3000;
 const purgeDeletedAccounts = require('./cron/purgeDeletedAccounts');
 const autoCompleteStaleGroupRides = require('./cron/autoCompleteStaleGroupRides');
 
+const server = http.createServer(app);
+liveShare.attach(server);
+
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => {
     console.log('✅ Connected to MongoDB Atlas');
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`🚀 Server running on port ${PORT}`);
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Server (HTTP+WS) running on port ${PORT}`);
     });
 
     // Run purge job once on startup, then every 24 hours
