@@ -69,6 +69,9 @@ const userSchema = new mongoose.Schema({
     isLive: { type: Boolean, default: false }
   },
 
+  // FCM device tokens for push notifications (multiple devices supported)
+  fcmTokens: [{ type: String }],
+
   createdAt: {
     type: Date,
     default: Date.now

@@ -279,8 +279,7 @@ router.get('/feed/activity', async (req, res) => {
 
     const shares = await RideShare.find({
       'sharedWith.type': 'circle',
-      'sharedWith.id': { $in: circleIds },
-      ownerId: { $ne: uid }
+      'sharedWith.id': { $in: circleIds }
     })
       .sort({ createdAt: -1 })
       .limit(limit)

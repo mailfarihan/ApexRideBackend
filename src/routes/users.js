@@ -159,6 +159,40 @@ router.post('/me/location', async (req, res) => {
   }
 });
 
+// POST /api/users/me/fcm-token - Register an FCM device token (idempotent)
+router.post('/me/fcm-token', async (req, res) => {
+  try {
+    const { token } = req.body || {};
+    if (!token || typeof token !== 'string' || token.length < 32) {
+      return res.status(400).json({ error: 'Invalid token' });
+    }
+    await User.updateOne(
+      { firebaseUid: req.user.uid },
+      { $addToSet: { fcmTokens: token } }
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Register FCM token error:', error);
+    res.status(500).json({ error: 'Failed to register token' });
+  }
+});
+
+// DELETE /api/users/me/fcm-token - Remove an FCM device token (logout/uninstall)
+router.delete('/me/fcm-token', async (req, res) => {
+  try {
+    const { token } = req.body || {};
+    if (!token) return res.status(400).json({ error: 'Token required' });
+    await User.updateOne(
+      { firebaseUid: req.user.uid },
+      { $pull: { fcmTokens: token } }
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Remove FCM token error:', error);
+    res.status(500).json({ error: 'Failed to remove token' });
+  }
+});
+
 // PUT /api/users/me/photo - Update profile photo URL
 router.put('/me/photo', async (req, res) => {
   try {

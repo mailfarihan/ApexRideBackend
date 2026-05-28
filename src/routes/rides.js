@@ -5,6 +5,9 @@ const Telemetry = require('../models/Telemetry');
 const Trip = require('../models/Trip');
 const { generateMapImages, deleteMapImages } = require('../services/mapImage');
 const { canAccessRide, autoShareRide } = require('../middleware/rideAccess');
+const { sendRideCompletedNotification } = require('../services/notifications');
+const User = require('../models/User');
+const Circle = require('../models/Circle');
 
 // GET /api/rides - Get user's synced rides
 router.get('/', async (req, res) => {
@@ -378,6 +381,7 @@ router.post('/', async (req, res) => {
     // Auto-share to every circle the rider belongs to (fire-and-forget)
     if (ride.endTime) {
       autoShareRide(result._id, req.user.uid).catch(err => console.error('autoShareRide error:', err.message));
+      notifyCircleMembersOfFinishedRide(req.user.uid, ride).catch(err => console.error('notify error:', err.message));
     }
   } catch (error) {
     console.error('Sync ride error:', error);
@@ -456,5 +460,54 @@ router.get('/by-id/:rideId', async (req, res) => {
     res.status(500).json({ error: 'Failed to get ride' });
   }
 });
+
+// Notify all circle co-members that this user just finished a ride.
+// Body text: "Completed a Xkm ride" ; subtext: duration H:MM.
+async function notifyCircleMembersOfFinishedRide(ownerUid, ride) {
+  // Skip if invalid/empty ride.
+  if (!ride || !ride.distance || ride.distance < 100) return;
+
+  const owner = await User.findOne({ firebaseUid: ownerUid }, { displayName: 1, photoUrl: 1, preferences: 1 }).lean();
+  if (!owner) return;
+
+  // Collect every co-member across every circle the owner is in.
+  const circles = await Circle.find(
+    { $or: [{ ownerId: ownerUid }, { 'members.userId': ownerUid }] },
+    { ownerId: 1, members: 1 }
+  ).lean();
+  const recipients = new Set();
+  for (const c of circles) {
+    if (c.ownerId && c.ownerId !== ownerUid) recipients.add(c.ownerId);
+    for (const m of (c.members || [])) {
+      if (m.userId && m.userId !== ownerUid) recipients.add(m.userId);
+    }
+  }
+  if (!recipients.size) return;
+
+  const useMetric = owner.preferences?.units !== 'imperial';
+  const distKm = (ride.distance || 0) / 1000;
+  const distVal = useMetric ? distKm : distKm * 0.621371;
+  const distLabel = useMetric ? 'km' : 'mi';
+  const distStr = distVal >= 10 ? distVal.toFixed(0) : distVal.toFixed(1);
+
+  // duration is seconds
+  const durSec = Math.max(0, Number(ride.duration) || 0);
+  const h = Math.floor(durSec / 3600);
+  const m = Math.floor((durSec % 3600) / 60);
+  const durStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+
+  await sendRideCompletedNotification(Array.from(recipients), {
+    title: owner.displayName || 'A rider',
+    body: `Completed a ${distStr} ${distLabel} ride`,
+    subtext: durStr,
+    largeIconUrl: owner.photoUrl || '',
+    deepLink: `apexride://profile/${ownerUid}`,
+    extras: {
+      ownerUid,
+      distanceM: String(ride.distance || 0),
+      durationSec: String(durSec)
+    }
+  });
+}
 
 module.exports = router;
