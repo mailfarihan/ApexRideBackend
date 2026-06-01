@@ -258,6 +258,24 @@ router.post('/sync', async (req, res) => {
         if (ride.endTime) {
           autoShareRide(result._id, req.user.uid).catch(err => console.error('autoShareRide error:', err.message));
         }
+
+        // Refresh the user's lastLocation from the ride end coordinates. Without this,
+        // a rider who auto-detects a ride end while the app is backgrounded would not
+        // push a fresh location (the Feed heartbeat only runs when the Feed screen is
+        // open), so Circle members would see stale pre-ride coordinates.
+        if (ride.endTime && typeof ride.endLat === 'number' && typeof ride.endLng === 'number') {
+          User.updateOne(
+            { firebaseUid: req.user.uid },
+            {
+              $set: {
+                'lastLocation.lat': ride.endLat,
+                'lastLocation.lng': ride.endLng,
+                'lastLocation.ts': new Date(ride.endTime),
+                'lastLocation.isLive': false
+              }
+            }
+          ).catch(err => console.error('lastLocation update on sync error:', err.message));
+        }
       } catch (err) {
         results.push({
           localId: ride.localId,
@@ -451,8 +469,19 @@ router.get('/by-id/:rideId', async (req, res) => {
   try {
     const ride = await canAccessRide(req.user.uid, req.params.rideId);
     if (!ride) return res.status(403).json({ error: 'No access to this ride' });
+    // Enrich with the ride owner's current displayName so the client can render
+    // titles like "<Owner>'s X km Ride" for rides shared by circle members.
+    let ownerName = null;
+    try {
+      const owner = await User.findOne(
+        { firebaseUid: ride.userId },
+        { displayName: 1 }
+      ).lean();
+      ownerName = owner?.displayName || null;
+    } catch (_) { /* non-fatal */ }
     res.json({
       ...ride,
+      ownerName,
       isOwner: ride.userId === req.user.uid
     });
   } catch (error) {

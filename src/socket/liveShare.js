@@ -290,6 +290,7 @@ function listActiveForViewer(viewerUid) {
       id: roomKey.split(':')[1],
       ownerId: s.ownerId,
       lastPoint: s.lastPoint,
+      trail: s.trail.slice(-60),
       updatedAt: s.lastUpdate
     });
   }
